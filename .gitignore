@@ -1,0 +1,7 @@
+*.pt
+*.pkl
+*.npy
+*.jpg
+*.png
+*.pyc
+data/
