@@ -12,6 +12,8 @@ import resnet
 import presnet
 import vgg16
 
+import utils
+
 # Data
 print('==> Preparing data..')
 transform_train = transforms.Compose([
@@ -118,11 +120,14 @@ def train(model):
     optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
     # optimizer = optim.Adam(model.parameters())
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
-    for epoch in range(400):  
+    acc = 0
+    total = 0
+    correct = 0
+    train_loss = 0
+    for epoch in range(400):
         scheduler.step()
         model.train()
         print ("beginning epoch {}".format(epoch))
-        running_loss = 0.0
         for i, data in enumerate(trainloader, 0):
             inputs, labels = data
             inputs, labels = Variable(inputs).cuda(), Variable(labels).cuda()
@@ -131,12 +136,14 @@ def train(model):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            running_loss += loss.data[0]
-            if i % 2000 == 999:    # print every 2000 mini-batches
-                acc = test(model, epoch)
-                print('epoch: {}, loss: {}, acc: {}'.format(
-                    epoch + 1, running_loss / 2000, acc))
-                running_loss = 0.0
+            if i % 2000 == 0:
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += predicted.eq(labels.data).cpu().sum()
+                acc = 100. * correct / total
+                utils.progress_bar(i, len(trainloader),
+                             'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+                        % (train_loss/(i+1), 100.*correct/total, correct, total))
     return acc
 
 
@@ -188,7 +195,7 @@ def w_init(model, dist='normal'):
 
 
 def run_model_search():
-    for i in range(600, 700):
+    for i in range(700, 800):
         print ("\nRunning CIFAR Model {}...".format(i))
         # model = vgg16.VGG().cuda()
         model = presnet.PreActResNet18().cuda()
