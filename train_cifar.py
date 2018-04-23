@@ -8,11 +8,10 @@ import torch.nn.functional as F
 import numpy as np
 import torch.optim as optim
 import matplotlib.pyplot as plt
-import resnet
 import presnet
-import vgg16
-
+import natsort
 import utils
+from glob import glob
 
 # Data
 print('==> Preparing data..')
@@ -28,11 +27,18 @@ transform_test = transforms.Compose([
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
 
-trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2)
+trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+                                        download=True,
+                                        transform=transform_train)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=128,
+                                          shuffle=True,
+                                          num_workers=2)
 
-testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
-testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=2)
+testset = torchvision.datasets.CIFAR10(root='./data', train=False,
+                                       download=True,
+                                       transform=transform_test)
+testloader = torch.utils.data.DataLoader(testset, batch_size=100,
+                                         shuffle=False, num_workers=2)
 
 
 class WideNet(nn.Module):
@@ -114,47 +120,42 @@ class TinyNet(nn.Module):
         return x
 
 
-
 def train(model):
+
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
-    # optimizer = optim.Adam(model.parameters())
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
-    acc = 0
-    total = 0
-    correct = 0
-    train_loss = 0
     for epoch in range(400):
         scheduler.step()
         model.train()
-        print ("beginning epoch {}".format(epoch))
-        for i, data in enumerate(trainloader, 0):
-            inputs, labels = data
+        acc = 0
+        total = 0
+        correct = 0
+        train_loss = 0
+        print ("Epoch {}\n".format(epoch))
+        for i, (inputs, labels) in enumerate(trainloader, 0):
             inputs, labels = Variable(inputs).cuda(), Variable(labels).cuda()
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            if i % 2000 == 0:
-                _, predicted = torch.max(outputs.data, 1)
-                total += labels.size(0)
-                correct += predicted.eq(labels.data).cpu().sum()
-                acc = 100. * correct / total
-                utils.progress_bar(i, len(trainloader),
-                             'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                        % (train_loss/(i+1), 100.*correct/total, correct, total))
+            train_loss += loss.data[0]
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += predicted.eq(labels.data).cpu().sum()
+            acc = 100. * correct / total
+            utils.progress_bar(i, len(trainloader),
+                         'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+                     % (train_loss/(i+1), 100.*correct/total, correct, total))
     return acc
 
 
-def test(model, epoch):
+def test(model):
     model.eval()
     correct = 0
-    test_loss = 0
     total = 0
-    criterion = nn.CrossEntropyLoss()
-    for data in testloader:
-        images, labels = data
+    for (images, labels) in testloader:
         images, labels = Variable(images).cuda(), labels.cuda()
         outputs = model(images)
         _, predicted = torch.max(outputs.data, 1)
@@ -195,15 +196,14 @@ def w_init(model, dist='normal'):
 
 
 def run_model_search():
-    for i in range(700, 800):
+    for i in range(1200, 1300):
         print ("\nRunning CIFAR Model {}...".format(i))
-        # model = vgg16.VGG().cuda()
         model = presnet.PreActResNet18().cuda()
-        # model = TinyNet().cuda()
-        model = w_init(model, 'normal')
+        # model = w_init(model, 'normal')
         acc = train(model)
         extract_weights(model, i)
-        torch.save(model.state_dict(), './models/cifar/resnet18/cifar_{}_{}.pt'.format(i, acc))
+        torch.save(model.state_dict(),
+                   './models/cifar/resnet18/cifar_{}_{}.pt'.format(i, acc))
 
 
 def load_models():
