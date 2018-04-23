@@ -196,7 +196,7 @@ def w_init(model, dist='normal'):
 
 
 def run_model_search():
-    for i in range(1200, 1300):
+    for i in range(250, 300):
         print ("\nRunning CIFAR Model {}...".format(i))
         model = presnet.PreActResNet18().cuda()
         # model = w_init(model, 'normal')
