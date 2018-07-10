@@ -50,6 +50,33 @@ class DiscriminatorWide(nn.Module):
         return out
 
 
+class ResNetDiscriminator(nn.Module):
+    def __init__(self, args, datashape):
+        super(ResNetDiscriminator, self).__init__()
+        self.shape = datashape
+        self.dim = args.dim
+        conv1 = nn.Conv2d(self.shape[-1], 4*self.dim, 3, stride=2, padding=2)
+        conv2 = nn.Conv2d(4*self.dim, 8*self.dim, 3, stride=2, padding=2)
+        conv3 = nn.Conv2d(8*self.dim, 16*self.dim, 3, stride=2, padding=2)
+        output = nn.Linear(4*4*4*self.dim, 1)
+
+        self.conv1 = conv1
+        self.conv2 = conv2 
+        self.conv3 = conv3
+        self.output = output
+
+    def forward(self, x):
+        # print ('d in', x.size())
+        x = x.view(-1, *self.shape[::-1]) # weirdest transpose ever
+        x = F.leaky_relu(self.conv1(x))
+        x = F.leaky_relu(self.conv2(x))
+        x = F.leaky_relu(self.conv3(x))
+        x = x.view(-1, 4*4*4*self.dim)
+        x = self.output(x)
+        # print ('d out: ', x.size())
+        return x
+
+
 class DiscriminatorWide7(nn.Module):
     def __init__(self, args, datashape):
         super(DiscriminatorWide7, self).__init__()

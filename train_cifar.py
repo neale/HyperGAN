@@ -9,6 +9,7 @@ import numpy as np
 import torch.optim as optim
 import matplotlib.pyplot as plt
 import presnet
+import resnet
 import natsort
 import utils
 from glob import glob
@@ -148,6 +149,7 @@ def train(model):
             utils.progress_bar(i, len(trainloader),
                          'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                      % (train_loss/(i+1), 100.*correct/total, correct, total))
+    acc = test(model)
     return acc
 
 
@@ -172,17 +174,18 @@ def extract_weights(model, id):
     names = [x for x in cnames if 'weight' in x]
     print (names)
     for name in names:
-        dir = name[:5]
+        print (name)
+        dir = name[:-7]
         conv = state[name]
         params = conv.cpu().numpy()
         # utils.plot_histogram(params, save=True)
         # return
-        save_dir = 'params/cifar/resnet18/{}/'.format(dir)
+        save_dir = 'params/cifar/resnet/{}/'.format(dir)
         print ("making ", save_dir)
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         print ('saving param size: ', params.shape)
-        np.save('./params/cifar/resnet18/{}/cifar_params_{}_{}'.format(dir, dir, id), params)
+        np.save('./params/cifar/resnet/{}/cifar_params_{}_{}'.format(dir, dir, id), params)
 
 
 def w_init(model, dist='normal'):
@@ -196,33 +199,35 @@ def w_init(model, dist='normal'):
 
 
 def run_model_search():
-    for i in range(250, 300):
+    for i in range(50, 100):
         print ("\nRunning CIFAR Model {}...".format(i))
-        model = presnet.PreActResNet18().cuda()
+        model = resnet.ResNet18().cuda()
         # model = w_init(model, 'normal')
         acc = train(model)
         extract_weights(model, i)
         torch.save(model.state_dict(),
-                   './models/cifar/resnet18/cifar_{}_{}.pt'.format(i, acc))
+                   './models/cifar/resnet/cifar_{}.pt'.format(i, acc))
 
 
 def load_models():
-    model = Net().cuda()
-    paths = glob('./models/cifar/*.pt')
+    model = resnet.ResNet18().cuda()
+    paths = glob('./models/cifar/resnet/*.pt')
     natpaths = natsort.natsorted(paths)
     for i, path in enumerate(natpaths):
         print ("loading model {}".format(path))
         ckpt = torch.load(path)
         model.load_state_dict(ckpt)
+        """
         test_new(model)
         import sys
         sys.exit(0)
         for k in range(10):
             test(model, k)
-        # extract_weights(model, i)
+        """
+        extract_weights(model, i)
 
 
 if __name__ == '__main__':
-    run_model_search()
     load_models()
+    run_model_search()
 

@@ -10,7 +10,8 @@ from glob import glob
 from scipy.misc import imsave
 import train_mnist as mnist
 import train_cifar as cifar
-
+from presnet import PreActResNet18
+from resnet import ResNet18
 import os
 import sys
 import time
@@ -21,6 +22,24 @@ import torch.nn.init as init
 
 
 param_dir = './params/sampled/mnist/test1/'
+
+
+def save_model(net, optim, epoch, path):
+    state_dict = net.state_dict()
+    torch.save({
+        'epoch': epoch + 1,
+        'state_dict': state_dict,
+        'optimizer': optim.state_dict(),
+        }, path)
+
+
+def load_model(net, optim, path):
+    ckpt = torch.load(path)
+    epoch = ckpt['epoch']
+    net.load_state_dict(ckpt['state_dict'])
+    optim.load_state_dict(ckpt['optimizer'])
+    return net, optim, epoch
+
 
 def plot_histogram(x, save=False, id=None):
     x = x.flatten()
@@ -83,7 +102,10 @@ def calc_gradient_penalty(args, model, real_data, gen_data):
             if args.layer == 'conv2':
                 datashape = (7, 7, 256)
     elif args.dataset == 'cifar':
-        datashape = (3, 3, 128)
+        if args.size in ['presnet', 'resnet']:
+            datashape = (3, 3, 512)
+        if args.size == '1x':
+            datashape = (3, 3, 128)
 
     alpha = torch.rand(batch_size, 1)
     # if args.layer == 'conv1':
@@ -125,9 +147,12 @@ def generate_samples(iter, G, path, args):
             if args.layer == 'conv2':
                 shape = (256, 128, 7, 7)
     elif args.dataset == 'cifar':
-        shape = (128, 64, 3, 3)
+        if args.size in ['presnet', 'resnet']:
+            shape = (512, 512, 3, 3)
+        if args.size == '1x':
+            shape = (128, 64, 3, 3)
     params = np.zeros(shape)
-    fixed_noise = torch.randn(batch_size, args.dim).cuda()
+    fixed_noise = torch.randn(shape[1], args.dim).cuda()
     noisev = autograd.Variable(fixed_noise, volatile=True)
     if args.layer == 'conv1':
         samples = G(noisev)[0].view(*shape)
@@ -141,24 +166,30 @@ def generate_samples(iter, G, path, args):
 
 def test_samples(args, iter, params):
     # take random model
-    id = np.random.randint(200)
+    id = np.random.randint(100)
     paths = natsort.natsorted(glob('models/{}/{}/*.pt'.format(
         args.dataset, args.size)))
     if args.dataset == 'mnist':
-        model = mnist.WideNet7().cuda()
+        model = mnist.WideNet().cuda()
         test = mnist.test
         layer_name = args.layer+'.0.weight'
     elif args.dataset == 'cifar':
-        model = cifar.WideNet().cuda()
+        if args.size == 'presnet':
+            model = PreActResNet18().cuda()
+        if args.size == 'resnet':
+            model = ResNet18().cuda()
         test = cifar.test
+        if args.size in ['presnet', 'resnet']:
+            layer_name = 'layer4.1.conv2'
         layer_name = args.layer+'.weight'
+    print (paths[id])
     model.load_state_dict(torch.load(paths[id]))
     state = model.state_dict()
     conv2 = state[layer_name]
     state[layer_name] = torch.Tensor(params).cuda()
     plot_histogram(params, save=True, id=str(id)+'-'+str(iter))
     model.load_state_dict(state)
-    acc = test(model, 0)
+    acc = test(model)
     return acc
 
 
@@ -283,5 +314,3 @@ if __name__ =='__main__':
 
     params = load_params()
     plot_histogram(params, True)
-
-
