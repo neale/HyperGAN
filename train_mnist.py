@@ -207,7 +207,7 @@ def test(model):
     print('Average loss: {}, Accuracy: {}/{} ({}%)'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
-    return acc
+    return acc, test_loss
 
 
 """ Extract weights of a loaded model """

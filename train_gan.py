@@ -15,6 +15,7 @@ from torch.nn import functional as F
 
 import plot
 import utils
+import encoders
 import generators
 import discriminators
 
@@ -31,7 +32,9 @@ def load_args():
     parser.add_argument('-s', '--size', default='wide7', type=str)
     parser.add_argument('-d', '--dataset', default='mnist', type=str)
     parser.add_argument('-l', '--layer', default='conv2', type=str)
-    parser.add_argument('--nf', default='', type=str)
+    parser.add_argument('--nf', default=128, type=int)
+    parser.add_argument('--resume', default=False, type=bool)
+    parser.add_argument('--beta', default=0.5, type=float)
 
     args = parser.parse_args()
     return args
@@ -62,13 +65,13 @@ def load_models(args):
                 netD = discriminators.DiscriminatorWide(args, shapes['mwideconv2']).cuda()
         elif args.size == 'wide7':
             if args.layer == 'conv1':
-                netE = encoders.EncoderWide7(args, shapes['mwide7conv1']).cuda()
-                netG = generators.MGeneratorWide7(args, shapes['mwide7conv1']).cuda()
-                netD = discriminators.DiscriminatorWide7(args, shapes['mwide7conv1']).cuda()
+                netE = encoders.EncoderWide7FC(args, shapes['mwide7conv1']).cuda()
+                netG = generators.GeneratorWide7FC(args, shapes['mwide7conv1']).cuda()
+                netD = discriminators.DiscriminatorWide7FC(args).cuda()
             if args.layer == 'conv2':
-                netE = encoders.EncoderWide7(args, shapes['mwide7conv2']).cuda()
-                netG = generators.MGeneratorWide7(args, shapes['mwide7conv2']).cuda()
-                netD = discriminators.DiscriminatorWide7(args, shapes['mwide7conv2']).cuda()
+                netE = encoders.EncoderWide7FC(args, shapes['mwide7conv2']).cuda()
+                netG = generators.GLayer7FC(args, shapes['mwide7conv2']).cuda()
+                netD = discriminators.DiscriminatorWide7FC(args).cuda()
 
 
     elif args.dataset =='cifar':
@@ -80,13 +83,13 @@ def load_models(args):
         if args.size == '1x':
             netG = generators.CGenerator(args).cuda()
             netD = discriminators.Discriminator(args).cuda()
-    print (netD, netG)
-    return (netD, netG)
+    print (netE, netD, netG)
+    return (netE, netD, netG)
 
 
 def train():
     args = load_args()
-    experiment = Experiment(api_key="54kuR3NpJIb6ibDx9HVSbbHdw", project_name="HyperGAN")
+    # experiment = Experiment(api_key="54kuR3NpJIb6ibDx9HVSbbHdw", project_name="HyperGAN")
     train_gen, dev_gen = utils.dataset_iterator(args)
     torch.manual_seed(1)
     
@@ -94,6 +97,7 @@ def train():
     optimizerE = optim.Adam(netE.parameters(), lr=1e-3, betas=(0.5, 0.9))
     optimizerG = optim.Adam(netG.parameters(), lr=1e-3, betas=(0.5, 0.9))
     optimizerD = optim.Adam(netD.parameters(), lr=1e-3, betas=(0.5, 0.9))
+    ae_criterion = nn.MSELoss()
 
     if args.resume is True:
         print ('==> reusing old weights if possible')
@@ -125,6 +129,13 @@ def train():
         real_data = torch.Tensor(_data).cuda()
         real_data_v = autograd.Variable(real_data)
         encoding  = netE(real_data_v)
+        # generate fake layer
+        init = torch.zeros_like(encoding)
+        n_loops = init.shape[1]//init.shape[0] # conv layers are (in,out,h,w)
+        for i in range(n_loops):
+            gen_params = netG(encoding)
+            init[i*init.shape[0]:i+1*init.shape[0]] = gen_params
+
         fake = netG(encoding)
         ae_loss = ae_criterion(fake, real_data_v)
         ae_loss.backward(one)
@@ -141,7 +152,6 @@ def train():
             # train with real
             D_real = netD(real_data_v)
             D_real = D_real.mean()
-            # print D_real
             D_real.backward(mone)
             # train with fake
             noise = torch.randn(args.batch_size, args.dim).cuda()
@@ -152,11 +162,13 @@ def train():
             D_fake = D_fake.mean()
             D_fake.backward(one)
             # train with gradient penalty
-            gradient_penalty = utils.calc_gradient_penalty(args, 
+            gradient_penalty = ops.calc_gradient_penalty(args, 
                     netD, real_data_v.data, fake.data)
             gradient_penalty.backward()
 
-            D_cost = D_fake - D_real + gradient_penalty
+            """ calc classifier loss """
+            clf_loss = ops.clf_loss(args, iteration, fake)
+            D_cost = D_fake - D_real + gradient_penalty * clf_loss
             Wasserstein_D = D_real - D_fake
             optimizerD.step()
 
@@ -192,12 +204,13 @@ def train():
             if not os.path.exists(path):
                 os.makedirs(path)
             acc = utils.generate_samples(iteration, netG, path, args)
-
+            """
             experiment.log_metric('train D cost', D_cost.cpu().data.numpy()[0])
             experiment.log_metric('train G cost', G_cost.cpu().data.numpy()[0])
             experiment.log_metric('W1 distance', Wasserstein_D.cpu().data.numpy()[0])
             experiment.log_metric('dev D cost', np.mean(dev_disc_costs))
             experiment.log_metric('{} accuracy'.format(args.dataset), acc)
+            """
             print ("****************")
             print('Iter ', iteration)
             print('D cost', D_cost.cpu().data.numpy()[0])

@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 from torch import nn
 
@@ -28,13 +29,15 @@ class Encoder(nn.Module):
         out = self.output(out)
         return out.view(-1, self.dim)
 
+
 class EncoderWide7(nn.Module):
     def __init__(self, args, datashape, is_training=True):
-        super(MGeneratorWide7, self).__init__()
+        super(EncoderWide7, self).__init__()
         self.dim = dim = args.dim
         self.shape = datashape
         self.nf = nf = 128
         self.nc = nc = datashape[1]
+        self.is_training = is_training
 
         self.block1 = nn.Sequential(
                 nn.Conv2d(nc, nf, 3, 2, 1),
@@ -50,7 +53,7 @@ class EncoderWide7(nn.Module):
 
     def forward(self, x):
         print ('E in: ', x.shape)
-        if self.is_training;
+        if self.is_training:
             z = torch.normal(torch.zeros_like(x.data), std=0.01)
             x.data += z
         x = self.block1(x)
@@ -58,6 +61,38 @@ class EncoderWide7(nn.Module):
         x = self.block2(x)
         #print ('g block2 out : ', x.shape)
         x = self.conv_out(x)
+        print ('E out: ', x.shape)
+        return x
+
+
+class EncoderWide7FC(nn.Module):
+    def __init__(self, args, datashape, is_training=True):
+        super(EncoderWide7FC, self).__init__()
+        self.dim = dim = args.dim
+        self.dshape = datashape
+        self.nf = nf = 128
+        self.nc = nc = datashape[1]
+        self.flatshape = int(np.prod(np.array([*datashape])))
+        self.is_training = is_training
+
+        self.linear1 = nn.Linear(self.flatshape, nf*4)
+        self.linear2 = nn.Linear(nf*4, nf*2)
+        self.linear3 = nn.Linear(nf*2, nf)
+        self.elu = nn.ELU()
+        self.bn1 = nn.BatchNorm2d(nf*4)
+        self.bn2 = nn.BatchNorm2d(nf*2)
+        self.bn3 = nn.BatchNorm2d(nf)
+
+    def forward(self, x):
+        print ('E in: ', x.shape)
+        x = x.view(-1, self.flatshape)
+        print (x.shape)
+        if self.is_training:
+            z = torch.normal(torch.zeros_like(x.data), std=0.01)
+            x.data += z
+        x = self.elu(self.bn1(self.linear1(x)))
+        x = self.elu(self.bn2(self.linear2(x)))
+        x = self.elu(self.bn3(self.linear3(x)))
         print ('E out: ', x.shape)
         return x
 

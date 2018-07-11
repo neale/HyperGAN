@@ -67,7 +67,7 @@ class MGeneratorWide7(nn.Module):
         super(MGeneratorWide7, self).__init__()
         self.nf = nf = args.nf
         self.shape = datashape
-        self.ndim = ndim = args.ndim
+        self.ndim = ndim = args.dim
         self.block1 = nn.Sequential(
                 nn.ConvTranspose2d(ndim, nf*8, 3, 1, 1),
                 nn.BatchNorm2d(nf*8),
@@ -159,43 +159,59 @@ class ResNetGenerator(nn.Module):
         return out
 
 
-class GeneratorFC(nn.Module):
-    def __init__(self, args):
-        super(GeneratorFC, self).__init__()
-        self.dim = 64
-        self.in_shape = 64
-        preprocess = nn.Sequential(
-                nn.Linear(self.dim, 4*self.dim),
-                nn.BatchNorm1d(4*self.dim),
-                nn.ReLU(True),
-                )
-        block = nn.Sequential(
-                nn.Linear(4*self.dim, 4*self.dim,),
-                nn.BatchNorm1d(4*self.dim),
-                nn.ReLU(True),
-                )
-        block2 = nn.Sequential(
-                nn.Linear(4*self.dim, 8*self.dim,),
-                nn.BatchNorm1d(8*self.dim),
-                nn.ReLU(True),
-                )
-        out = nn.Sequential(
-                nn.Linear(8*self.dim, 2*self.dim),
-                nn.ReLU(True),
-                nn.Linear(2*self.dim, 9)
-                )
-        self.block = block
-        self.block2 = block2
-        self.out = out
-        self.preprocess = preprocess
-        self.tanh = nn.Tanh()
+class GeneratorWide7FC(nn.Module):
+    def __init__(self, args, datashape):
+        super(GeneratorWide7FC, self).__init__()
+        self.dim = dim = args.dim
+        self.dshape = datashape
+        self.nu = nlinear = 512
+        self.nf = nconv = datashape[-1]
+        self.nc = nc = datashape[0]
 
-    def forward(self, input):
-        output = self.preprocess(input)
-        output = output.view(-1, 4*self.dim)
-        output = self.block(output)
-        # output = self.block(output)
-        output = self.block2(output)
-        output = self.out(output)
-        output = self.tanh(output)*4
-        return output.view(-1, 9)
+        self.linear1 = nn.Linear(nlinear, nlinear*2)
+        self.linear2 = nn.Linear(nlinear*2, nlinear*4)
+        self.linear3 = nn.Linear(nlinear*4, nc)
+        self.linear_out = nn.Linear(nc, nc * nfilters * nfilters)
+        self.elu = nn.ELU()
+        self.bn1 = nn.BatchNorm2d(nlinear*2)
+        self.bn2 = nn.BatchNorm2d(nlinear*4)
+        self.bn3 = nn.BatchNorm2d(nc)
+
+    def forward(self, x):
+        print ('G in: ', x.shape)
+        x = self.elu(self.bn1(self.linear1(x)))
+        x = self.elu(self.bn2(self.linear2(x)))
+        x = self.elu(self.bn3(self.linear3(x)))
+        x = self.linear_out(x)
+        x = x.view(datashape)
+        print ('G out: ', x.shape)
+        return x
+
+class GLayer7FC(nn.Module):
+    def __init__(self, args, datashape):
+        super(GLayer7FC, self).__init__()
+        self.dim = dim = args.dim
+        self.dshape = datashape
+        self.nf = nf = datashape[-1]
+        self.nc = nc = datashape[0]
+
+        self.linear1 = nn.Linear(dim, nf*nf*8)
+        self.linear2 = nn.Linear(nf*nf*8, nf*nf*4)
+        self.linear3 = nn.Linear(nf*nf*4, nf*nf*2)
+        self.linear_out = nn.Linear(nf*nf*2, nf*nf)
+        self.elu = nn.ELU()
+        self.bn1 = nn.BatchNorm2d(nf*nf*8)
+        self.bn2 = nn.BatchNorm2d(nf*nf*4)
+        self.bn3 = nn.BatchNorm2d(nf*nf*2)
+
+    def forward(self, x):
+        print ('G in: ', x.shape)
+        x = self.elu(self.bn1(self.linear1(x)))
+        x = self.elu(self.bn2(self.linear2(x)))
+        x = self.elu(self.bn3(self.linear3(x)))
+        x = self.linear_out(x)
+        x = x.view(-1, self.nf, self.nf)
+        print ('G out: ', x.shape)
+        return x
+
+

@@ -132,3 +132,28 @@ class DiscriminatorFC(nn.Module):
         out = out.view(-1, 2*self.dim)
         out = self.output(out)
         return out.view(-1)
+
+
+class DiscriminatorWide7FC(nn.Module):
+    def __init__(self, args):
+        super(DiscriminatorWide7FC, self).__init__()
+        self.dim = dim = args.dim
+        self.nf = nf = 512
+
+        self.linear1 = nn.Linear(dim, nf)
+        self.linear2 = nn.Linear(nf, nf)
+        self.linear3 = nn.Linear(nf, 1)
+        self.elu = nn.ELU()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        print ('D in: ', x.shape)
+        x = x.view(-1, np.prod(self.dshape))
+        x = self.elu(self.linear1(x))
+        x = self.elu(self.linear2(x))
+        x = self.elu(self.linear3(x))
+        x = self.sigmoid(x)
+        print ('D out: ', x.shape)
+        return x
+
+
