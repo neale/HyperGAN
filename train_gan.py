@@ -13,6 +13,7 @@ from torch import autograd
 from torch import optim
 from torch.nn import functional as F
 
+import ops
 import plot
 import utils
 import encoders
@@ -25,7 +26,7 @@ def load_args():
     parser = argparse.ArgumentParser(description='param-wgan')
     parser.add_argument('-z', '--dim', default=128, type=int, help='latent space size')
     parser.add_argument('-g', '--gp', default=10, type=int, help='gradient penalty')
-    parser.add_argument('-b', '--batch_size', default=128, type=int)
+    parser.add_argument('-b', '--batch_size', default=256, type=int)
     parser.add_argument('-e', '--epochs', default=200000, type=int)
     parser.add_argument('-o', '--output_dim', default=784, type=int)
     parser.add_argument('-m', '--model', default='conv', type=str)
@@ -67,11 +68,11 @@ def load_models(args):
             if args.layer == 'conv1':
                 netE = encoders.EncoderWide7FC(args, shapes['mwide7conv1']).cuda()
                 netG = generators.GeneratorWide7FC(args, shapes['mwide7conv1']).cuda()
-                netD = discriminators.DiscriminatorWide7FC(args).cuda()
+                netD = discriminators.DiscriminatorWide7FC(args, shapes['mwide7conv1']).cuda()
             if args.layer == 'conv2':
                 netE = encoders.EncoderWide7FC(args, shapes['mwide7conv2']).cuda()
                 netG = generators.GLayer7FC(args, shapes['mwide7conv2']).cuda()
-                netD = discriminators.DiscriminatorWide7FC(args).cuda()
+                netD = discriminators.DiscriminatorWide7FC(args, shapes['mwide7conv2']).cuda()
 
 
     elif args.dataset =='cifar':
@@ -130,18 +131,13 @@ def train():
         real_data_v = autograd.Variable(real_data)
         encoding  = netE(real_data_v)
         # generate fake layer
-        init = torch.zeros_like(encoding)
-        n_loops = init.shape[1]//init.shape[0] # conv layers are (in,out,h,w)
-        for i in range(n_loops):
-            gen_params = netG(encoding)
-            init[i*init.shape[0]:i+1*init.shape[0]] = gen_params
-
-        fake = netG(encoding)
+        fake = ops.gen_layer(args, netG, encoding)
         ae_loss = ae_criterion(fake, real_data_v)
         ae_loss.backward(one)
         optimizerE.step()
         optimizerG.step()
-
+        
+        """ Update Adversary """
         for p in netD.parameters():  # reset requires_grad
             p.requires_grad = True  # they are set to False below in netG update
             # Update Discriminator
@@ -155,19 +151,19 @@ def train():
             D_real.backward(mone)
             # train with fake
             noise = torch.randn(args.batch_size, args.dim).cuda()
-            noisev = autograd.Variable(noise, volatile=True)  # totally freeze netG
-            fake = autograd.Variable(netG(noisev).data)
-            inputv = fake
-            D_fake = netD(inputv)
+            noisev = autograd.Variable(noise)
+            fake = ops.gen_layer(args, netG, noisev)
+            D_fake = netD(fake)
             D_fake = D_fake.mean()
             D_fake.backward(one)
             # train with gradient penalty
-            gradient_penalty = ops.calc_gradient_penalty(args, 
-                    netD, real_data_v.data, fake.data)
+
+            gradient_penalty = ops.calc_gradient_penalty(args, netD,
+                    real_data_v.data, fake.data)
             gradient_penalty.backward()
 
             """ calc classifier loss """
-            clf_loss = ops.clf_loss(args, iteration, fake)
+            clf_acc, clf_loss = ops.clf_loss(args, iteration, fake)
             D_cost = D_fake - D_real + gradient_penalty * clf_loss
             Wasserstein_D = D_real - D_fake
             optimizerD.step()
@@ -187,10 +183,10 @@ def train():
         # Calculate dev loss and generate samples every 100 iters
         if iteration % 500 == 0:
             utils.save_model(netG, optimizerG, iteration,
-                    'models/WGAN/{}/Generators/{}G_{}'.format(
+                    'WGAN/{}/Generators/{}G_{}'.format(
                         args.dataset, args.size, iteration))
             utils.save_model(netD, optimizerD, iteration, 
-                    'models/WGAN/{}/Discriminators/{}D_{}'.format(
+                    'WGAN/{}/Discriminators/{}D_{}'.format(
                         args.dataset, args.size, iteration))
             dev_disc_costs = []
             for params in dev_gen():
@@ -203,7 +199,12 @@ def train():
             path = 'params/sampled/{}/{}/{}'.format(args.dataset, args.size, args.layer)
             if not os.path.exists(path):
                 os.makedirs(path)
-            acc = utils.generate_samples(iteration, netG, path, args)
+            z = torch.randn(args.batch_size, args.dim).cuda()
+            z = autograd.Variable(z)
+            samples = ops.gen_layer(args, netG, z)
+            acc, loss = ops.clf_loss(args, iteration, samples)
+            utils.save_samples(args, samples, iteration, path)
+            # acc = utils.generate_samples(iteration, netG, path, args)
             """
             experiment.log_metric('train D cost', D_cost.cpu().data.numpy()[0])
             experiment.log_metric('train G cost', G_cost.cpu().data.numpy()[0])
@@ -215,8 +216,10 @@ def train():
             print('Iter ', iteration)
             print('D cost', D_cost.cpu().data.numpy()[0])
             print('G cost', G_cost.cpu().data.numpy()[0])
+            print('AE cost', ae_loss)
             print('W1 distance', Wasserstein_D.cpu().data.numpy()[0])
-            print ('{} accuracy'.format(args.dataset), acc)
+            print ('clf accuracy', clf_acc)
+            print ('clf loss', clf_loss)
             print ("****************")
 
 

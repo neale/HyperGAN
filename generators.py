@@ -205,13 +205,13 @@ class GLayer7FC(nn.Module):
         self.bn3 = nn.BatchNorm2d(nf*nf*2)
 
     def forward(self, x):
-        print ('G in: ', x.shape)
+        # print ('G in: ', x.shape)
         x = self.elu(self.bn1(self.linear1(x)))
         x = self.elu(self.bn2(self.linear2(x)))
         x = self.elu(self.bn3(self.linear3(x)))
         x = self.linear_out(x)
         x = x.view(-1, self.nf, self.nf)
-        print ('G out: ', x.shape)
+        # print ('G out: ', x.shape)
         return x
 
 

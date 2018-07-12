@@ -72,10 +72,10 @@ class EncoderWide7FC(nn.Module):
         self.dshape = datashape
         self.nf = nf = 128
         self.nc = nc = datashape[1]
-        self.flatshape = int(np.prod(np.array([*datashape])))
+        self.ng = ng = self.dshape[-1]*self.dshape[-2]*nf
         self.is_training = is_training
 
-        self.linear1 = nn.Linear(self.flatshape, nf*4)
+        self.linear1 = nn.Linear(ng, nf*4)
         self.linear2 = nn.Linear(nf*4, nf*2)
         self.linear3 = nn.Linear(nf*2, nf)
         self.elu = nn.ELU()
@@ -84,16 +84,15 @@ class EncoderWide7FC(nn.Module):
         self.bn3 = nn.BatchNorm2d(nf)
 
     def forward(self, x):
-        print ('E in: ', x.shape)
-        x = x.view(-1, self.flatshape)
-        print (x.shape)
+        # print ('E in: ', x.shape)
+        x = x.view(-1, self.ng)
         if self.is_training:
             z = torch.normal(torch.zeros_like(x.data), std=0.01)
             x.data += z
         x = self.elu(self.bn1(self.linear1(x)))
         x = self.elu(self.bn2(self.linear2(x)))
         x = self.elu(self.bn3(self.linear3(x)))
-        print ('E out: ', x.shape)
+        # print ('E out: ', x.shape)
         return x
 
 

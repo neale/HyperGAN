@@ -5,6 +5,9 @@ import scipy.misc
 import numpy as np
 import matplotlib.pyplot as plt
 import torch.autograd as autograd
+import itertools
+import cv2
+import numpy as np
 
 from glob import glob
 from scipy.misc import imsave
@@ -22,9 +25,11 @@ import torch.nn.init as init
 
 
 param_dir = './params/sampled/mnist/test1/'
+model_dir = '/data0/models/HyperGAN/models/'
 
 
 def save_model(net, optim, epoch, path):
+    path = model_dir + path
     state_dict = net.state_dict()
     torch.save({
         'epoch': epoch + 1,
@@ -71,9 +76,9 @@ def load_params(flat=True):
     paths = glob(param_dir+'/*.npy')
     paths = natsort.natsorted(paths)
     s = np.load(paths[0]).shape
-    print (s)
+    # print (s)
     params = np.zeros((len(paths), *s))
-    print (params.shape)
+    # print (params.shape)
     for i in range(len(paths)):
         params[i] = np.load(paths[i])
 
@@ -83,49 +88,26 @@ def load_params(flat=True):
     return res
 
 
-def generate_samples(iter, G, path, args):
+def save_samples(args, samples, iter, path):
     batch_size = args.batch_size
-    if args.dataset == 'mnist':
-        if args.size == '1x':
-            if args.layer == 'conv1':
-                shape = (32, 1, 3, 3)
-            if args.layer == 'conv2':
-                shape = (64, 32, 3, 3)
-        if args.size == 'wide':
-            if args.layer == 'conv1':
-                shape = (128, 1, 3, 3)
-            if args.layer == 'conv2':
-                shape = (256, 128, 3, 3)
-        if args.size == 'wide7':
-            if args.layer == 'conv1':
-                shape = (128, 1, 7, 7)
-            if args.layer == 'conv2':
-                shape = (256, 128, 7, 7)
-    elif args.dataset == 'cifar':
-        if args.size in ['presnet', 'resnet']:
-            shape = (512, 512, 3, 3)
-        if args.size == '1x':
-            shape = (128, 64, 3, 3)
-    params = np.zeros(shape)
-    fixed_noise = torch.randn(shape[1], args.dim).cuda()
-    noisev = autograd.Variable(fixed_noise, volatile=True)
-    if args.layer == 'conv1':
-        samples = G(noisev)[0].view(*shape)
-    else:
-        samples = G(noisev).view(*shape)
-    params = samples.cpu().data.numpy()
-    np.save(path+'/params_iter_{}.npy'.format(iter), params)
-    acc = test_samples(args, iter, params)
-    return acc
+    # lets view the first filter
+    filters = samples[:, 0, :, :]
+    #filters = np.pad(filters, (2, 3), 'constant')
+    #print (filters.shape)
+    filters = filters.unsqueeze(3)
+    grid_img = grid(16, 8, filters, margin=2)
+    im_path = 'plots/{}/{}/filters/{}.png'.format(args.dataset, args.size, iter)
+    cv2.imwrite(im_path, grid_img)
+    np.save(path+'/params_iter_{}.npy'.format(iter), samples)
 
 
 def test_samples(args, iter, params):
     # take random model
-    id = np.random.randint(100)
-    paths = natsort.natsorted(glob('models/{}/{}/*.pt'.format(
+    paths = natsort.natsorted(glob(model_dir+'{}/{}/*.pt'.format(
         args.dataset, args.size)))
+    id = np.random.randint(len(paths))
     if args.dataset == 'mnist':
-        model = mnist.WideNet().cuda()
+        model = mnist.WideNet7().cuda()
         test = mnist.test
         layer_name = args.layer+'.0.weight'
     elif args.dataset == 'cifar':
@@ -137,12 +119,11 @@ def test_samples(args, iter, params):
         if args.size in ['presnet', 'resnet']:
             layer_name = 'layer4.1.conv2'
         layer_name = args.layer+'.weight'
-    print (paths[id])
     model.load_state_dict(torch.load(paths[id]))
     state = model.state_dict()
     conv2 = state[layer_name]
-    state[layer_name] = torch.Tensor(params).cuda()
-    plot_histogram(params, save=True, id=str(id)+'-'+str(iter))
+    state[layer_name] = params.data
+    # plot_histogram(params, save=True, id=str(id)+'-'+str(iter))
     model.load_state_dict(state)
     acc, loss = test(model)
     return acc, loss
@@ -231,6 +212,28 @@ def format_time(seconds):
     if f == '':
         f = '0ms'
     return f
+
+
+def grid(w, h, imgs, margin):
+    n = w*h
+    img_h, img_w, img_c = imgs[0].shape
+    m_x = 0
+    m_y = 0
+    if margin is not None:
+        m_x = int(margin)
+        m_y = m_x
+    imgmatrix = np.zeros((img_h * h + m_y * (h - 1),
+        img_w * w + m_x * (w - 1),
+        img_c),
+        np.uint8)
+    imgmatrix.fill(255)    
+
+    positions = itertools.product(range(w), range(h))
+    for (x_i, y_i), img in zip(positions, imgs):
+        x = x_i * (img_w + m_x)
+        y = y_i * (img_h + m_y)
+        imgmatrix[y:y+img_h, x:x+img_w, :] = img
+    return imgmatrix
 
 
 if __name__ =='__main__':

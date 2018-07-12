@@ -1,3 +1,4 @@
+import numpy as np
 from torch import nn
 import torch.nn.functional as F
 
@@ -135,25 +136,26 @@ class DiscriminatorFC(nn.Module):
 
 
 class DiscriminatorWide7FC(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, datashape):
         super(DiscriminatorWide7FC, self).__init__()
         self.dim = dim = args.dim
         self.nf = nf = 512
+        self.dshape = dshape = datashape
+        
+        self.ng = ng = dshape[-1]*dshape[-2]*dshape[0]
 
-        self.linear1 = nn.Linear(dim, nf)
+        self.linear1 = nn.Linear(ng, nf)
         self.linear2 = nn.Linear(nf, nf)
         self.linear3 = nn.Linear(nf, 1)
         self.elu = nn.ELU()
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        print ('D in: ', x.shape)
-        x = x.view(-1, np.prod(self.dshape))
+        # print ('D in: ', x.shape)
+        x = x.view(-1, self.ng)
         x = self.elu(self.linear1(x))
         x = self.elu(self.linear2(x))
         x = self.elu(self.linear3(x))
         x = self.sigmoid(x)
-        print ('D out: ', x.shape)
+        # print ('D out: ', x.shape)
         return x
-
-

@@ -26,14 +26,14 @@ def param_generator(args, data, batch_size):
             filter_shape = (128, 3, 3)
 
     filter_volume = data
+    layer_size = data.shape[2]
     filters = filter_volume.reshape((-1, *filter_shape))
     rng_state = np.random.get_state()
     np.random.set_state(rng_state)
-    print (filters.shape)
-    filters = filters[len(filters)%batch_size:]
+    filters = filters[len(filters)%layer_size:]
     def get_epoch():
         np.random.shuffle(filters)
-        params_batches = filters.reshape(-1, batch_size, *filter_shape)
+        params_batches = filters.reshape(-1, layer_size, *filter_shape)
 
         for i in range(len(params_batches)):
             yield (np.copy(params_batches[i]))
@@ -73,12 +73,9 @@ def load(args, layer='conv2'):
             pshape = (512, 512, 3, 3)
 
     paths = glob(pdir+'*.npy')
-    print (len(paths))
     data = np.zeros((len(paths), *pshape))
     for i in range(len(paths)):
         data[i] = np.load(paths[i])
-    print (data.shape)
-    
     len_t = int(len(data) * .9)
     train_data = data[:len_t]
     val_data = data[len_t:]

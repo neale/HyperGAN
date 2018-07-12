@@ -35,25 +35,28 @@ def calc_gradient_penalty(args, model, real_data, gen_data):
                 datashape = (3, 3, 64)
         if args.size == 'wide':
             if args.layer == 'conv1':
-                datashape = (3, 3, 128)
+                datashape = (3, 3, 128, 1)
             if args.layer == 'conv2':
-                datashape = (3, 3, 256)
+                datashape = (3, 3, 256, 128)
         if args.size == 'wide7':
             if args.layer == 'conv1':
-                datashape = (7, 7, 128)
+                datashape = (7, 7, 128, 1)
             if args.layer == 'conv2':
-                datashape = (7, 7, 256)
+                datashape = (7, 7, 256, 128)
     elif args.dataset == 'cifar':
         if args.size in ['presnet', 'resnet']:
             datashape = (3, 3, 512)
         if args.size == '1x':
             datashape = (3, 3, 128)
 
-    alpha = torch.rand(batch_size, 1)
+    # alpha = torch.rand(batch_size, 1)
+    alpha = torch.rand(datashape[-1], 1)
     # if args.layer == 'conv1':
     #     alpha = alpha.expand(real_data.size()).cuda()
-    alpha = alpha.expand(batch_size, int(real_data.nelement()/batch_size))
-    alpha = alpha.contiguous().view(batch_size, *(datashape[::-1])).cuda()
+    # alpha = alpha.expand(batch_size, int(real_data.nelement()/batch_size))
+    # alpha = alpha.contiguous().view(batch_size, *(datashape[::-1])).cuda()
+    alpha = alpha.expand(datashape[-1], int(real_data.nelement()/datashape[-1]))
+    alpha = alpha.contiguous().view(*datashape).cuda()
     interpolates = alpha * real_data + ((1 - alpha) * gen_data)
     interpolates = interpolates.cuda()
     interpolates = autograd.Variable(interpolates, requires_grad=True)
@@ -70,10 +73,20 @@ def calc_gradient_penalty(args, model, real_data, gen_data):
     return gradient_penalty
 
 
+def gen_layer(args, netG, data):
+    init = []
+    for i in range(data.shape[1]):
+        gen_params = netG(data)
+        init.append(gen_params)
+    g = torch.stack(init)
+    return g
+ 
+
 def clf_loss(args, iter, sample):
     """ get the classifier loss on the generated samples """
+    sample = sample.transpose(1, 0)
     acc, loss = utils.test_samples(args, iter, sample)
-    return loss * args.beta
+    return acc, loss * args.beta
     
 
 def get_mean_and_std(dataset):
