@@ -35,7 +35,7 @@ def load_args():
     parser.add_argument('-l', '--layer', default='conv2', type=str)
     parser.add_argument('--nf', default=128, type=int)
     parser.add_argument('--resume', default=False, type=bool)
-    parser.add_argument('--beta', default=2., type=float)
+    parser.add_argument('--beta', default=10e3, type=float)
     parser.add_argument('--comet', default=False, type=bool)
 
     args = parser.parse_args()
@@ -143,7 +143,7 @@ def train():
         for p in netD.parameters():  # reset requires_grad
             p.requires_grad = True  # they are set to False below in netG update
             # Update Discriminator
-        for iter_d in range(5):
+        for iter_d in range(1):
             real_data = torch.Tensor(_data).cuda()
             real_data_v = autograd.Variable(real_data)
             netD.zero_grad()
@@ -166,7 +166,7 @@ def train():
 
             """ calc classifier loss """
             clf_acc, clf_loss = ops.clf_loss(args, iteration, fake)
-            D_cost = D_fake - D_real + gradient_penalty * clf_loss
+            D_cost = D_fake - D_real + gradient_penalty + clf_loss
             Wasserstein_D = D_real - D_fake
             optimizerD.step()
 
@@ -226,7 +226,9 @@ def train():
             print('AE cost', ae_loss.cpu().data.numpy()[0])
             print('W1 distance', Wasserstein_D.cpu().data.numpy()[0])
             print ('clf accuracy', clf_acc)
-            print ('clf loss', clf_loss)
+            print ('clf loss', clf_loss/args.beta)
+            # print sample filter
+            print ('filter 1: ', samples[0, 0, :, :])
             print ("****************")
 
 

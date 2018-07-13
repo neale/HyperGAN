@@ -89,23 +89,20 @@ def load_params(flat=True):
 
 
 def save_samples(args, samples, iter, path):
-    batch_size = args.batch_size
     # lets view the first filter
     filters = samples[:, 0, :, :]
-    #filters = np.pad(filters, (2, 3), 'constant')
-    #print (filters.shape)
     filters = filters.unsqueeze(3)
     grid_img = grid(16, 8, filters, margin=2)
     im_path = 'plots/{}/{}/filters/{}.png'.format(args.dataset, args.size, iter)
     cv2.imwrite(im_path, grid_img)
-    np.save(path+'/params_iter_{}.npy'.format(iter), samples)
+    return
 
 
 def test_samples(args, iter, params):
     # take random model
     paths = natsort.natsorted(glob(model_dir+'{}/{}/*.pt'.format(
         args.dataset, args.size)))
-    id = np.random.randint(len(paths))
+    id = 0
     if args.dataset == 'mnist':
         model = mnist.WideNet7().cuda()
         test = mnist.test
