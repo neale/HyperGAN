@@ -40,9 +40,9 @@ def calc_gradient_penalty(args, model, real_data, gen_data):
                 datashape = (3, 3, 256, 128)
         if args.size == 'wide7':
             if args.layer == 'conv1':
-                datashape = (7, 7, 128, 1)
+                datashape = (128, 1, 7, 7)
             if args.layer == 'conv2':
-                datashape = (7, 7, 256, 128)
+                datashape = (128, 256, 7, 7)
     elif args.dataset == 'cifar':
         if args.size in ['presnet', 'resnet']:
             datashape = (3, 3, 512)
@@ -50,15 +50,14 @@ def calc_gradient_penalty(args, model, real_data, gen_data):
             datashape = (3, 3, 128)
 
     # alpha = torch.rand(batch_size, 1)
-    alpha = torch.rand(datashape[-1], 1)
+    alpha = torch.rand(datashape[0], 1)
     # if args.layer == 'conv1':
     #     alpha = alpha.expand(real_data.size()).cuda()
     # alpha = alpha.expand(batch_size, int(real_data.nelement()/batch_size))
     # alpha = alpha.contiguous().view(batch_size, *(datashape[::-1])).cuda()
-    alpha = alpha.expand(datashape[-1], int(real_data.nelement()/datashape[-1]))
+    alpha = alpha.expand(datashape[0], int(real_data.nelement()/datashape[0]))
     alpha = alpha.contiguous().view(*datashape).cuda()
-    interpolates = alpha * real_data + ((1 - alpha) * gen_data)
-    interpolates = interpolates.cuda()
+    interpolates = alpha * real_data + ((1 - alpha) * gen_data).cuda()
     interpolates = autograd.Variable(interpolates, requires_grad=True)
     disc_interpolates = model(interpolates)
     gradients = autograd.grad(outputs=disc_interpolates,
