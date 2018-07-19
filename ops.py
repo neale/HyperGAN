@@ -84,8 +84,7 @@ def gen_layer(args, netG, data):
 def clf_loss(args, iter, sample):
     """ get the classifier loss on the generated samples """
     sample = sample.transpose(1, 0)
-    acc, loss = utils.test_samples(args, iter, sample)
-    return acc, loss * args.beta
+    return utils.test_samples(args, iter, sample)
     
 
 def get_mean_and_std(dataset):

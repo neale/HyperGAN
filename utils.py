@@ -117,13 +117,14 @@ def test_samples(args, iter, params):
             layer_name = 'layer4.1.conv2'
         layer_name = args.layer+'.weight'
     model.load_state_dict(torch.load(paths[id]))
+    oracle_acc, oracle_loss = test(model)
     state = model.state_dict()
     conv2 = state[layer_name]
     state[layer_name] = params.data
     # plot_histogram(params, save=True, id=str(id)+'-'+str(iter))
     model.load_state_dict(state)
     acc, loss = test(model)
-    return acc, loss
+    return (acc, loss), (oracle_acc, oracle_loss)
 
 
 _, term_width = os.popen('stty size', 'r').read().split()

@@ -24,8 +24,8 @@ def load_args():
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
-    parser.add_argument('--net', type=str, default='wide', metavar='N',
-                        help='network to train [tiny, wide, wide7]')
+    parser.add_argument('--net', type=str, default='fcn', metavar='N',
+                        help='network to train [tiny, wide, wide7, fcn]')
 
 
     args = parser.parse_args()
@@ -41,13 +41,13 @@ def load_data():
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])),
-        batch_size=32, shuffle=True, **kwargs)
+        batch_size=64, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
         datasets.MNIST('./data', train=False, transform=transforms.Compose([
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])),
-        batch_size=32, shuffle=True, **kwargs)
+        batch_size=64, shuffle=True, **kwargs)
     return train_loader, test_loader
 
 """ trains a 4x wide MNIST network with 3x3 filters """
@@ -75,8 +75,8 @@ class WideNet(nn.Module):
         x = self.conv1(x)
         x = self.conv2(x)
         x = x.view(-1, 2*2*256)
-        x = self.fc1(x)
-        x = self.fc2(x)
+        x = self.linear1(x)
+        x = self.linear2(x)
         return x
 
 
@@ -94,18 +94,18 @@ class WideNet7(nn.Module):
                 nn.ReLU(True),
                 nn.MaxPool2d(2, 2),
                 )
-        self.fc1 = nn.Sequential(
+        self.linear1 = nn.Sequential(
                 nn.Linear(2*2*256, 1024), 
                 nn.ReLU(True),
                 )
-        self.fc2 = nn.Linear(1024, 10)
+        self.linear2 = nn.Linear(1024, 10)
 
     def forward(self, x):
         x = self.conv1(x)
         x = self.conv2(x)
         x = x.view(-1, 2*2*256)
-        x = self.fc1(x)
-        x = self.fc2(x)
+        x = self.linear1(x)
+        x = self.linear2(x)
         return x
 
 
@@ -124,18 +124,58 @@ class Net(nn.Module):
                 nn.MaxPool2d(2, 2),
                 nn.MaxPool2d(2, 2),
                 )
-        self.fc1 = nn.Sequential(
+        self.linear1 = nn.Sequential(
                 nn.Linear(2*2*64, 128), 
                 nn.ReLU(True),
                 )
-        self.fc2 = nn.Linear(128, 10)
+        self.linear2 = nn.Linear(128, 10)
 
     def forward(self, x):
         x = self.conv1(x)
         x = self.conv2(x)
         x = x.view(-1, 2*2*64)
-        x = self.fc1(x)
-        x = self.fc2(x)
+        x = self.linear1(x)
+        x = self.linear2(x)
+        return x
+
+""" Standard small MNIST net with 3x3 filters """
+class FCN(nn.Module):
+    def __init__(self):
+        super(FCN, self).__init__()
+        self.conv1 = nn.Sequential(
+                nn.Conv2d(1, 32, 3),
+                nn.ReLU(True),
+                nn.MaxPool2d(2, 2),
+                )
+        self.conv2 = nn.Sequential(
+                nn.Conv2d(32, 64, 3),
+                nn.ReLU(True),
+                nn.MaxPool2d(2, 2),
+                )
+        self.linear = nn.Linear(1600, 10)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = x.view(-1, 1600)
+        x = self.linear(x)
+        return x
+
+""" Standard small MNIST net with 3x3 filters """
+class FCN2(nn.Module):
+    def __init__(self):
+        super(FCN2, self).__init__()
+        self.conv1 = nn.Sequential(
+                nn.Conv2d(1, 64, 7),
+                nn.ReLU(True),
+                nn.MaxPool2d(4, 4),
+                )
+        self.linear = nn.Linear(1600, 10)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = x.view(-1, 1600)
+        x = self.linear(x)
         return x
 
 
@@ -154,18 +194,18 @@ class TinyNet(nn.Module):
                 nn.MaxPool2d(2, 2),
                 nn.MaxPool2d(2, 2),
                 )
-        self.fc1 = nn.Sequential(
+        self.linear1 = nn.Sequential(
                 nn.Linear(2*2*64, 128), 
                 nn.ReLU(True),
                 )
-        self.fc2 = nn.Linear(128, 10)
+        self.linear2 = nn.Linear(128, 10)
 
     def forward(self, x):
         x = self.conv1(x)
         x = self.conv2(x)
         x = x.view(-1, 2*2*64)
-        x = self.fc1(x)
-        x = self.fc2(x)
+        x = self.linear1(x)
+        x = self.linear2(x)
         return x
 
 
@@ -176,7 +216,7 @@ def train(model):
     train_loader, _ = load_data()
     optimizer = optim.Adam(model.parameters())
     criterion = nn.CrossEntropyLoss()
-    for epoch in range(10):
+    for epoch in range(5):
         model.train()
         for batch_idx, (data, target) in enumerate(train_loader):
             data, target = Variable(data).cuda(), Variable(target).cuda()
@@ -185,11 +225,11 @@ def train(model):
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
-        acc = test(model, epoch)
+        acc, loss = test(model, epoch)
     return acc
 
 
-def test(model):
+def test(model, epoch=None):
     model.eval()
     _, test_loader = load_data()
     test_loss = 0
@@ -204,9 +244,10 @@ def test(model):
 
     test_loss /= len(test_loader.dataset)
     acc = correct / len(test_loader.dataset)
-    #print('Average loss: {}, Accuracy: {}/{} ({}%)'.format(
-    #    test_loss, correct, len(test_loader.dataset),
-    #    100. * correct / len(test_loader.dataset)))
+    if epoch:
+        print('Average loss: {}, Accuracy: {}/{} ({}%)'.format(
+            test_loss, correct, len(test_loader.dataset),
+            100. * correct / len(test_loader.dataset)))
     return acc, test_loss
 
 
@@ -223,11 +264,10 @@ def extract_weights(model, id):
 def extract_weights_all(args, model, id):
     state = model.state_dict()
     conv_names = [x for x in list(state.keys()) if 'conv' in x]
-    fc_names = [x for x in list(state.keys()) if 'fc' in x]
+    fc_names = [x for x in list(state.keys()) if 'linear' in x]
     cnames = [x for x in conv_names if 'weight' in x] 
     fnames = [x for x in fc_names if 'weight' in x]
     names = cnames + fnames
-
     print (names)
     for i, name in enumerate(names):
         print (name)
@@ -266,6 +306,10 @@ def get_network(args):
         model = WideNet7().cuda()
     elif args.net == 'tiny':
         model = TinyNet().cuda()
+    elif args.net == 'fcn':
+        model = FCN().cuda()
+    elif args.net == 'fcn2':
+        model = FCN2().cuda()
     else:
         raise NotImplementedError
     return model
@@ -274,15 +318,15 @@ def get_network(args):
 """ train and save models and their weights """
 def run_model_search(args):
 
-    for i in range(0, 1000):
+    for i in range(0, 500):
         print ("\nRunning MNIST Model {}...".format(i))
         model = get_network(args)
         print (model)
-        model = w_init(model, 'uniform')
+        model = w_init(model, 'normal')
         acc = train(model)
-        extract_weights(model, i)
+        extract_weights_all(args, model, i)
         torch.save(model.state_dict(),
-                './models/mnist/wide7/mnist_model_{}_{}.pt'.format(i, acc))
+                mdir+'mnist/{}/mnist_model_{}_{}.pt'.format(args.net, i, acc))
 
 
 """ Load a batch of networks to extract weights """
@@ -302,5 +346,5 @@ def load_models(args):
 if __name__ == '__main__':
     args = load_args()
     
-    load_models(args)
     run_model_search(args)
+    load_models(args)

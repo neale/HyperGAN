@@ -32,42 +32,11 @@ def load_args():
     parser.add_argument('-l', '--layer', default='conv2', type=str)
     parser.add_argument('--nf', default=128, type=int)
     parser.add_argument('--resume', default=False, type=bool)
-    parser.add_argument('--beta', default=10, type=float)
+    parser.add_argument('--beta', default=100, type=float)
     parser.add_argument('--comet', default=False, type=bool)
 
     args = parser.parse_args()
     return args
-
-
-class netE_fc(nn.Module):
-    def __init__(self, args, datashape, is_training=True):
-        super(netE_fc, self).__init__()
-        self.dim = dim = args.dim
-        self.dshape = datashape
-        self.nf = nf = 128
-        self.nc = nc = datashape[1]
-        self.ng = ng = self.dshape[-1]*self.dshape[-2]*nf
-        self.is_training = is_training
-
-        self.linear1 = nn.Linear(ng, nf*4)
-        self.linear2 = nn.Linear(nf*4, nf*2)
-        self.linear3 = nn.Linear(nf*2, nf)
-        self.elu = nn.ELU()
-        self.bn1 = nn.BatchNorm2d(nf*4)
-        self.bn2 = nn.BatchNorm2d(nf*2)
-        self.bn3 = nn.BatchNorm2d(nf)
-
-    def forward(self, x):
-        # print ('E in: ', x.shape)
-        x = x.view(-1, self.ng)
-        if self.is_training:
-            z = torch.normal(torch.zeros_like(x.data), std=0.01)
-            x.data += z
-        x = self.elu(self.bn1(self.linear1(x)))
-        x = self.elu(self.bn2(self.linear2(x)))
-        x = self.elu(self.bn3(self.linear3(x)))
-        # print ('E out: ', x.shape)
-        return x
 
 
 class netG_fc(nn.Module):
@@ -82,16 +51,38 @@ class netG_fc(nn.Module):
         self.linear2 = nn.Linear(nf*nf*8, nf*nf*4)
         self.linear3 = nn.Linear(nf*nf*4, nf*nf*2)
         self.linear_out = nn.Linear(nf*nf*2, nf*nf)
-        self.elu = nn.ELU()
-        self.bn1 = nn.BatchNorm2d(nf*nf*8)
-        self.bn2 = nn.BatchNorm2d(nf*nf*4)
-        self.bn3 = nn.BatchNorm2d(nf*nf*2)
+        self.relu = nn.LeakyReLU(.2, inplace=True)
 
     def forward(self, x):
         # print ('G in: ', x.shape)
-        x = self.elu(self.bn1(self.linear1(x)))
-        x = self.elu(self.bn2(self.linear2(x)))
-        x = self.elu(self.bn3(self.linear3(x)))
+        x = self.relu(self.linear1(x))
+        x = self.relu(self.linear2(x))
+        x = self.relu(self.linear3(x))
+        x = self.linear_out(x)
+        x = x.view(-1, self.nf, self.nf)
+        # print ('G out: ', x.shape)
+        return x
+
+
+class netG_fc_filter(nn.Module):
+    def __init__(self, args, datashape):
+        super(netG_fc, self).__init__()
+        self.dim = dim = args.dim
+        self.dshape = datashape
+        self.nf = nf = datashape[-1]
+        self.nc = nc = datashape[0]
+
+        self.linear1 = nn.Linear(dim, nf*nf*8)
+        self.linear2 = nn.Linear(nf*nf*8, nf*nf*4)
+        self.linear3 = nn.Linear(nf*nf*4, nf*nf*2)
+        self.linear_out = nn.Linear(nf*nf*2, nf*nf)
+        self.relu = nn.LeakyReLU(.2, inplace=True)
+
+    def forward(self, x):
+        print ('G in: ', x.shape)
+        x = self.relu(self.linear1(x))
+        x = self.relu(self.linear2(x))
+        x = self.relu(self.linear3(x))
         x = self.linear_out(x)
         x = x.view(-1, self.nf, self.nf)
         # print ('G out: ', x.shape)
@@ -111,7 +102,7 @@ class netG_conv(nn.Module):
         self.conv2 = nn.Conv2d(nc, nc*2, 3, 2)
         self.conv3 = nn.Conv2d(nc*2, nc*4, 3, 2)
 
-        self.elu = nn.ELU()
+        self.relu = nn.LeakyReLU(.2, inplace=True)
         self.tanh = nn.Tanh()
         self.bn1 = nn.BatchNorm2d(nc)
         self.bn2 = nn.BatchNorm2d(nc*2)
@@ -121,8 +112,8 @@ class netG_conv(nn.Module):
         #print ('G in: ', x.shape)
         x = self.elu(self.linear(x))
         x = x.view(-1, 1, 64, 64)
-        x = self.elu(self.bn1(self.conv1(x)))
-        x = self.elu(self.bn2(self.conv2(x)))
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
         x = self.conv3(x)
         x = x.view(-1, 128, 7, 7)
         # print ('G out: ', x.shape)
@@ -142,37 +133,17 @@ class netD_fc(nn.Module):
         self.linear1 = nn.Linear(ng, nf)
         self.linear2 = nn.Linear(nf, nf)
         self.linear3 = nn.Linear(nf, 1)
-        self.elu = nn.ELU()
+        self.relu = nn.LeakyReLU(.2, inplace=True)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         # print ('D in: ', x.shape)
         x = x.view(-1, self.ng)
-        x = self.elu(self.linear1(x))
-        x = self.elu(self.linear2(x))
-        x = self.elu(self.linear3(x))
-        x = self.sigmoid(x)
-        # print ('D out: ', x.shape)
-        return x
-
-class netDz_fc(nn.Module):
-    def __init__(self, args, datashape):
-        super(netDz_fc, self).__init__()
-        self.dim = dim = args.dim
-        self.nf = nf = 512
-
-        self.linear1 = nn.Linear(dim, nf)
-        self.linear2 = nn.Linear(nf, 1)
-        self.relu = nn.LeakyReLU(.2, inplace=True)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        # print ('Dz in: ', x.shape)
-        # x = x.view(-1, self.ng)
         x = self.relu(self.linear1(x))
-        x = self.linear2(x)
-        x = self.sigmoid(x)
-        # print ('Dz out: ', x.shape)
+        x = self.relu(self.linear2(x))
+        x = self.relu(self.linear3(x))
+        # x = self.sigmoid(x)
+        # print ('D out: ', x.shape)
         return x
 
 
@@ -201,28 +172,17 @@ args = load_args()
 shape = (128, 256, 7, 7)
 
 if args.layer == 'conv1':
-    netE = netE_fc(args, shape).cuda()
     netG = netG_fc(args, shape).cuda()
     netD = netD_fc(args, shape).cuda()
 if args.layer == 'conv2':
-    netE = netE_fc(args, shape).cuda()
     netG = netG_fc(args, shape).cuda()
     netD = netD_fc(args, shape).cuda()
 
 train_gen, dev_gen = utils.dataset_iterator(args)
 torch.manual_seed(1)
 
-optimizerE = optim.Adam(netE.parameters(), lr=1e-3, betas=(0.5, 0.9))
-optimizerG = optim.Adam(netG.parameters(), lr=1e-3, betas=(0.5, 0.9))
-optimizerD = optim.Adam(netD.parameters(), lr=1e-3, betas=(0.5, 0.9))
-
-if use_wae:
-    if args.layer == 'conv1':
-        netDz = netDz_fc(args, shape).cuda()
-    if args.layer == 'conv2':
-        netDz = netDz_fc(args, shape).cuda()
-    optimizerDz = optim.Adam(netDz.parameters(), lr=1e-3, betas=(0.5, 0.9))
-
+optimizerG = optim.Adam(netG.parameters(), lr=1e-4, betas=(0.5, 0.9))
+optimizerD = optim.Adam(netD.parameters(), lr=1e-4, betas=(0.5, 0.9))
 ae_criterion = nn.MSELoss()
 
 one = torch.FloatTensor([1]).cuda()
@@ -232,44 +192,15 @@ gen = utils.inf_train_gen(train_gen)
 for iteration in range(0, 100000):
     start_time = time.time()
 
-    """ Update AE """
-    for p in netD.parameters():
-        p.requires_grad = False  # to avoid computation
-    netG.zero_grad()
-    netE.zero_grad()
-
-    _data = next(gen)
-    real_data = torch.Tensor(_data).cuda()
-    real_data_v = autograd.Variable(real_data)
-    encoding  = netE(real_data_v)
-    # generate fake layer
-    fake = ops.gen_layer(args, netG, encoding)
-    # fake = netG(encoding)
-    ae_loss = ae_criterion(fake, real_data_v)
-    ae_loss.backward(one)
-    optimizerE.step()
-    optimizerG.step()
-     
+    
     """ Update Adversary """
     for p in netD.parameters():  # reset requires_grad
         p.requires_grad = True  # they are set to False below in netG update
     for iter_d in range(5):
+        _data = next(gen)
         real_data = torch.Tensor(_data).cuda()
         real_data_v = autograd.Variable(real_data)
         netD.zero_grad()
-
-        """ Update Dz """
-        if use_wae:
-            netDz.zero_grad()
-            z_real = autograd.Variable(torch.randn(args.batch_size, args.dim)).cuda()
-            z_fake = netE(real_data_v).view(args.batch_size, -1)
-            Dz_real = netDz(z_real)
-            Dz_fake = netDz(z_fake)
-            Dz_loss = -(torch.mean(Dz_real) - torch.mean(Dz_fake))
-            Dz_loss.backward()
-            optimizerDz.step()
-
-        """ update Dg """
         D_real = netD(real_data_v)
         D_real = D_real.mean()
         D_real.backward(mone)
@@ -284,15 +215,19 @@ for iteration in range(0, 100000):
 
         gradient_penalty = ops.calc_gradient_penalty(args, netD,
                 real_data_v.data, fake.data)
-        gradient_penalty.backward()
 
         """ calc classifier loss """
-        clf_acc, clf_loss = ops.clf_loss(args, iteration, fake)
-        D_cost = D_fake - D_real + gradient_penalty + clf_loss
+        (clf_acc, clf_loss), _ = ops.clf_loss(args, iteration, fake)
+        D_cost = D_fake - D_real + gradient_penalty + (clf_loss * args.beta)
+        add_loss = clf_loss + gradient_penalty
+        add_loss.backward(one)
         Wasserstein_D = D_real - D_fake
         optimizerD.step()
 
     """ Update Generator network """
+    for p in netD.parameters():
+        p.requires_grad = False
+    netG.zero_grad()
     noise = torch.randn(args.batch_size, args.dim).cuda()
     noisev = autograd.Variable(noise)
     fake = netG(noisev)
@@ -330,13 +265,12 @@ for iteration in range(0, 100000):
         z = autograd.Variable(z)
         samples = ops.gen_layer(args, netG, z)
         # samples = netG(z)
-        acc, loss = ops.clf_loss(args, iteration, samples)
+        (acc, loss), (o_acc, o_loss) = ops.clf_loss(args, iteration, samples)
         utils.save_samples(args, samples, iteration, path)
         # acc = utils.generate_samples(iteration, netG, path, args)
         if args.comet:        
             experiment.log_metric('train D cost', D_cost.cpu().data.numpy()[0])
             experiment.log_metric('train G cost', G_cost.cpu().data.numpy()[0])
-            experiment.log_metric('AE cost', ae_loss.cpu().data.numpy()[0])
             experiment.log_metric('W1 distance', Wasserstein_D.cpu().data.numpy()[0])
             experiment.log_metric('dev D cost', np.mean(dev_disc_costs))
             experiment.log_metric('{} accuracy'.format(args.dataset), acc)
@@ -346,12 +280,14 @@ for iteration in range(0, 100000):
         print('Iter ', iteration, 'Beta ', args.beta)
         print('D cost', D_cost.cpu().data.numpy()[0])
         print('G cost', G_cost.cpu().data.numpy()[0])
-        print('AE cost', ae_loss.cpu().data.numpy()[0])
+        print('GP', gradient_penalty.cpu().data.numpy()[0])
         print('W1 distance', Wasserstein_D.cpu().data.numpy()[0])
-        print ('clf accuracy', clf_acc)
-        print ('clf loss', clf_loss/args.beta)
+        print ('clf accuracy', acc)
+        print ('oracle accuracy', o_acc)
+        print ('clf loss', loss)
+        print ('oracle loss', o_loss)
         # print sample filter
-        print ('filter 1: ', samples[0, 0, :, :])
+        print ('test filter 1: ', samples[0, 0, :, :])
         print ("****************")
 
 
