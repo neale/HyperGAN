@@ -16,150 +16,131 @@ from torch.nn import functional as F
 import ops
 import plot
 import utils
-
+import netdef
 
 def load_args():
 
     parser = argparse.ArgumentParser(description='param-wgan')
-    parser.add_argument('-z', '--dim', default=128, type=int, help='latent space size')
+    parser.add_argument('-z', '--dim', default=64, type=int, help='latent space size')
     parser.add_argument('-g', '--gp', default=10, type=int, help='gradient penalty')
-    parser.add_argument('-b', '--batch_size', default=256, type=int)
+    parser.add_argument('-b', '--batch_size', default=64, type=int)
     parser.add_argument('-e', '--epochs', default=200000, type=int)
-    parser.add_argument('-o', '--output_dim', default=784, type=int)
-    parser.add_argument('-m', '--model', default='conv', type=str)
-    parser.add_argument('-s', '--size', default='wide7', type=str)
+    parser.add_argument('-s', '--model', default='fcn2', type=str)
     parser.add_argument('-d', '--dataset', default='mnist', type=str)
-    parser.add_argument('-l', '--layer', default='conv2', type=str)
-    parser.add_argument('--nf', default=128, type=int)
-    parser.add_argument('--resume', default=False, type=bool)
+    parser.add_argument('-l', '--layer', default='all', type=str)
+    parser.add_argument('--nfe', default=64, type=int)
+    parser.add_argument('--nfg', default=64, type=int)
+    parser.add_argument('--nfd', default=128, type=int)
     parser.add_argument('--beta', default=10, type=float)
+    parser.add_argument('--resume', default=False, type=bool)
     parser.add_argument('--comet', default=False, type=bool)
+    parser.add_argument('--use_wae', default=False, type=bool)
 
     args = parser.parse_args()
     return args
 
 
-class netE_fc(nn.Module):
-    def __init__(self, args, datashape, is_training=True):
-        super(netE_fc, self).__init__()
-        self.dim = dim = args.dim
-        self.dshape = datashape
-        self.nf = nf = 128
-        self.nc = nc = datashape[1]
-        self.ng = ng = self.dshape[-1]*self.dshape[-2]*nf
-        self.is_training = is_training
+class Encoder_fc(nn.Module):
+    def __init__(self, args):
+        super(Encoder_fc, self).__init__()
+        for k, v in vars(args).items():
+            setattr(self, k, v)
 
-        self.linear1 = nn.Linear(ng, nf*4)
-        self.linear2 = nn.Linear(nf*4, nf*2)
-        self.linear3 = nn.Linear(nf*2, nf)
-        self.elu = nn.ELU()
-        self.bn1 = nn.BatchNorm2d(nf*4)
-        self.bn2 = nn.BatchNorm2d(nf*2)
-        self.bn3 = nn.BatchNorm2d(nf)
+        self.linear1 = nn.Linear(self.lcd, nfe*4)
+        self.linear2 = nn.Linear(self.nfe*4, self.nfe*2)
+        self.linear3 = nn.Linear(self.nfe*2, self.dim)
+        self.relu = nn.LeakyReLU(.2, inplace=True)
 
     def forward(self, x):
-        # print ('E in: ', x.shape)
+        print ('E in: ', x.shape)
         x = x.view(-1, self.ng)
-        if self.is_training:
-            z = torch.normal(torch.zeros_like(x.data), std=0.01)
-            x.data += z
-        x = self.elu(self.bn1(self.linear1(x)))
-        x = self.elu(self.bn2(self.linear2(x)))
-        x = self.elu(self.bn3(self.linear3(x)))
-        # print ('E out: ', x.shape)
+        #if self.is_training:
+        #    z = torch.normal(torch.zeros_like(x.data), std=0.01)
+        #    x.data += z
+        x = self.relu(self.linear1(x))
+        x = self.relu(self.linear2(x))
+        x = self.relu(self.linear3(x))
+        print ('E out: ', x.shape)
         return x
 
 
-class netG_fc(nn.Module):
-    def __init__(self, args, datashape):
-        super(netG_fc, self).__init__()
-        self.dim = dim = args.dim
-        self.dshape = datashape
-        self.nf = nf = datashape[-1]
-        self.nc = nc = datashape[0]
+class Generator_fc(nn.Module):
+    def __init__(self, args):
+        super(Generator_fc, self).__init__()
+        for k, v in vars(args).items():
+            setattr(self, k, v)
 
-        self.linear1 = nn.Linear(dim, nf*nf*8)
-        self.linear2 = nn.Linear(nf*nf*8, nf*nf*4)
-        self.linear3 = nn.Linear(nf*nf*4, nf*nf*2)
-        self.linear_out = nn.Linear(nf*nf*2, nf*nf)
-        self.elu = nn.ELU()
-        self.bn1 = nn.BatchNorm2d(nf*nf*8)
-        self.bn2 = nn.BatchNorm2d(nf*nf*4)
-        self.bn3 = nn.BatchNorm2d(nf*nf*2)
+        self.linear1 = nn.Linear(self.dim, self.nfg*4)
+        self.linear2 = nn.Linear(self.nfg*4, self.nfg*2)
+        self.linear3 = nn.Linear(self.nfg*2, self.nfg)
+        self.linear_out = nn.Linear(self.nfg, self.lcd)
+        self.relu = nn.LeakyReLU(.2, inplace=True)
 
     def forward(self, x):
-        # print ('G in: ', x.shape)
-        x = self.elu(self.bn1(self.linear1(x)))
-        x = self.elu(self.bn2(self.linear2(x)))
-        x = self.elu(self.bn3(self.linear3(x)))
+        print ('G in: ', x.shape)
+        x = self.relu(self.linear1(x))
+        x = self.relu(self.linear2(x))
+        x = self.relu(self.linear3(x))
         x = self.linear_out(x)
         x = x.view(-1, self.nf, self.nf)
-        # print ('G out: ', x.shape)
+        print ('G out: ', x.shape)
         return x
 
 
-class netG_conv(nn.Module):
+class Generator_conv(nn.Module):
     def __init__(self, args, datashape):
-        super(netG_conv, self).__init__()
-        self.dim = dim = args.dim
-        self.dshape = datashape
-        self.nf = nf = 128 
-        self.nc = nc = 32
+        super(Generator_conv, self).__init__()
+        for k, v in vars(args).items():
+            setattr(self, k, v)
 
-        self.linear = nn.Linear(nf, 64*64)
-        self.conv1 = nn.Conv2d(1, nc, 3, 2)
-        self.conv2 = nn.Conv2d(nc, nc*2, 3, 2)
-        self.conv3 = nn.Conv2d(nc*2, nc*4, 3, 2)
-
-        self.elu = nn.ELU()
+        self.linear = nn.Linear(nfg, 64*64)
+        self.conv1 = nn.Conv2d(1, self.nfg, 3, 2)
+        self.conv2 = nn.Conv2d(self.nfg, self.nfg*2, 3, 2)
+        self.conv3 = nn.Conv2d(self.nfg*2, self.nfg*4, 3, 2)
+        self.relu = nn.LeakyReLU(.2, inplace=True)
         self.tanh = nn.Tanh()
-        self.bn1 = nn.BatchNorm2d(nc)
-        self.bn2 = nn.BatchNorm2d(nc*2)
-        # self.bn3 = nn.BatchNorm2d(nc*4)
 
     def forward(self, x):
-        #print ('G in: ', x.shape)
+        print ('G in: ', x.shape)
         x = self.elu(self.linear(x))
         x = x.view(-1, 1, 64, 64)
-        x = self.elu(self.bn1(self.conv1(x)))
-        x = self.elu(self.bn2(self.conv2(x)))
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
         x = self.conv3(x)
         x = x.view(-1, 128, 7, 7)
-        # print ('G out: ', x.shape)
+        print ('G out: ', x.shape)
         return x
 
 
 
-class netD_fc(nn.Module):
-    def __init__(self, args, datashape):
-        super(netD_fc, self).__init__()
-        self.dim = dim = args.dim
-        self.nf = nf = 512
-        self.dshape = dshape = datashape
+class Discriminator_fc(nn.Module):
+    def __init__(self, args,):
+        super(Discriminator_fc, self).__init__()
+        for k, v in vars(args).items():
+            setattr(self, k, v)
 
-        self.ng = ng = dshape[-1]*dshape[-2]*dshape[0]
-
-        self.linear1 = nn.Linear(ng, nf)
-        self.linear2 = nn.Linear(nf, nf)
-        self.linear3 = nn.Linear(nf, 1)
-        self.elu = nn.ELU()
+        self.ng = self.batch_size * self.lcd
+        self.linear1 = nn.Linear(self.ng, self.nfd)
+        self.linear2 = nn.Linear(self.nfd, self.nfd)
+        self.linear3 = nn.Linear(self.nfd, 1)
+        self.relu = nn.LeakyReLU(.2, inplace=True)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        # print ('D in: ', x.shape)
+        print ('D in: ', x.shape)
         x = x.view(-1, self.ng)
-        x = self.elu(self.linear1(x))
-        x = self.elu(self.linear2(x))
-        x = self.elu(self.linear3(x))
+        x = self.relu(self.linear1(x))
+        x = self.relu(self.linear2(x))
+        x = self.relu(self.linear3(x))
         x = self.sigmoid(x)
-        # print ('D out: ', x.shape)
+        print ('D out: ', x.shape)
         return x
 
-class netDz_fc(nn.Module):
+class Discriminator_z_fc(nn.Module):
     def __init__(self, args, datashape):
-        super(netDz_fc, self).__init__()
-        self.dim = dim = args.dim
-        self.nf = nf = 512
+        super(Discriminator_z_fc, self).__init__()
+        for k, v in vars(args).items():
+            setattr(self, k, v)
 
         self.linear1 = nn.Linear(dim, nf)
         self.linear2 = nn.Linear(nf, 1)
@@ -176,7 +157,7 @@ class netDz_fc(nn.Module):
         return x
 
 
-def calc_gradient_penalty(args, model, real_data, gen_data):
+def calc_gradient_penalty(args, shape, netD, real_data, gen_data):
     batch_size = args.batch_size
     datashape = (128, 256, 7, 7)
 
@@ -185,7 +166,7 @@ def calc_gradient_penalty(args, model, real_data, gen_data):
     alpha = alpha.contiguous().view(*datashape).cuda()
     interpolates = alpha * real_data + ((1 - alpha) * gen_data).cuda()
     interpolates = autograd.Variable(interpolates, requires_grad=True)
-    disc_interpolates = model(interpolates)
+    disc_interpolates = netD(interpolates)
     gradients = autograd.grad(outputs=disc_interpolates,
             inputs=interpolates,
             grad_outputs=torch.ones(disc_interpolates.size()).cuda(),
@@ -197,17 +178,17 @@ def calc_gradient_penalty(args, model, real_data, gen_data):
     return gradient_penalty
 
 
+def load_networks(args):
 args = load_args()
-shape = (128, 256, 7, 7)
+modeldef = netdef.nets()[args.model]
+args.lcd = modeldef['base_shape']
 
-if args.layer == 'conv1':
-    netE = netE_fc(args, shape).cuda()
-    netG = netG_fc(args, shape).cuda()
-    netD = netD_fc(args, shape).cuda()
-if args.layer == 'conv2':
-    netE = netE_fc(args, shape).cuda()
-    netG = netG_fc(args, shape).cuda()
-    netD = netD_fc(args, shape).cuda()
+print (modeldef)
+
+netE = Encoder_fc(args, modeldef)
+netG = Generator_fc(args, modeldef)
+netD = Discriminator_fc(args, modeldef)
+
 
 train_gen, dev_gen = utils.dataset_iterator(args)
 torch.manual_seed(1)
@@ -216,11 +197,9 @@ optimizerE = optim.Adam(netE.parameters(), lr=1e-3, betas=(0.5, 0.9))
 optimizerG = optim.Adam(netG.parameters(), lr=1e-3, betas=(0.5, 0.9))
 optimizerD = optim.Adam(netD.parameters(), lr=1e-3, betas=(0.5, 0.9))
 
+
 if use_wae:
-    if args.layer == 'conv1':
-        netDz = netDz_fc(args, shape).cuda()
-    if args.layer == 'conv2':
-        netDz = netDz_fc(args, shape).cuda()
+    netDz = Discriminator_wae(args, shape).cuda()
     optimizerDz = optim.Adam(netDz.parameters(), lr=1e-3, betas=(0.5, 0.9))
 
 ae_criterion = nn.MSELoss()

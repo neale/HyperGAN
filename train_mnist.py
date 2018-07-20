@@ -178,6 +178,23 @@ class FCN2(nn.Module):
         x = self.linear(x)
         return x
 
+""" net with divisible parameters """
+class Small(nn.Module):
+    def __init__(self):
+        super(Small, self).__init__()
+        self.conv1 = nn.Sequential(
+                nn.Conv2d(1, 64, 7, 1, 4),
+                nn.ReLU(True),
+                nn.MaxPool2d(4, 4),
+                )
+        self.linear = nn.Linear(3136, 10)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = x.view(-1, 3136)
+        x = self.linear(x)
+        return x
+
 
 """ Narrow MNIST net with 3x3 filters """
 class TinyNet(nn.Module):
@@ -310,6 +327,8 @@ def get_network(args):
         model = FCN().cuda()
     elif args.net == 'fcn2':
         model = FCN2().cuda()
+    elif args.net == 'small':
+        model = Small().cuda()
     else:
         raise NotImplementedError
     return model
