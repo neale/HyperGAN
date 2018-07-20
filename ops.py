@@ -74,17 +74,18 @@ def calc_gradient_penalty(args, model, real_data, gen_data):
 
 def gen_layer(args, netG, data):
     init = []
-    for i in range(data.shape[1]):
+    iters = args.shapes[args.id][0] // args.batch_size
+    for i in range(iters):
         gen_params = netG(data)
         init.append(gen_params)
     g = torch.stack(init)
     return g
  
 
-def clf_loss(args, iter, sample):
+def clf_loss(args, sample):
     """ get the classifier loss on the generated samples """
-    sample = sample.transpose(1, 0)
-    return utils.test_samples(args, iter, sample)
+    # sample = sample.transpose(1, 0)
+    return utils.test_samples(args, sample)
     
 
 def get_mean_and_std(dataset):

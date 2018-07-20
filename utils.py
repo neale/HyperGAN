@@ -28,7 +28,8 @@ param_dir = './params/sampled/mnist/test1/'
 model_dir = '/data0/models/HyperGAN/models/'
 
 
-def save_model(net, optim, epoch, path):
+def save_model(args, net, optim):
+    path = 'HyperGAN/{}/{}/{}'.format(args.dataset, net.name, args.model)
     path = model_dir + path
     state_dict = net.state_dict()
     torch.save({
@@ -61,8 +62,8 @@ def plot_histogram(x, save=False, id=None):
         plt.show()
 
 
-def dataset_iterator(args):
-    train_gen, dev_gen = datagen.load(args)
+def dataset_iterator(args, id):
+    train_gen, dev_gen = datagen.load(args, id)
     return (train_gen, dev_gen)
 
 
@@ -93,24 +94,24 @@ def save_samples(args, samples, iter, path):
     filters = samples[:, 0, :, :]
     filters = filters.unsqueeze(3)
     grid_img = grid(16, 8, filters, margin=2)
-    im_path = 'plots/{}/{}/filters/{}.png'.format(args.dataset, args.size, iter)
+    im_path = 'plots/{}/{}/filters/{}.png'.format(args.dataset, args.model, iter)
     cv2.imwrite(im_path, grid_img)
     return
 
 
-def test_samples(args, iter, params):
+def test_samples(args, params):
     # take random model
     paths = natsort.natsorted(glob(model_dir+'{}/{}/*.pt'.format(
-        args.dataset, args.size)))
-    id = 0
+        args.dataset, args.model)))
+    id = np.random.randint(300)
     if args.dataset == 'mnist':
-        model = mnist.WideNet7().cuda()
+        model = mnist.small().cuda()
         test = mnist.test
         layer_name = args.layer+'.0.weight'
     elif args.dataset == 'cifar':
-        if args.size == 'presnet':
+        if args.model == 'presnet':
             model = PreActResNet18().cuda()
-        if args.size == 'resnet':
+        if args.model == 'resnet':
             model = ResNet18().cuda()
         test = cifar.test
         if args.size in ['presnet', 'resnet']:

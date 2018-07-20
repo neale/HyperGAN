@@ -2,31 +2,11 @@ import os
 import numpy as np
 from glob import glob
 
-def param_generator(args, data, batch_size):
-    if args.dataset == 'mnist':
-        if args.size == '1x':
-            if args.layer == 'conv1':
-                filter_shape = (32, 3, 3)
-            if args.layer == 'conv2':
-                filter_shape = (64, 3, 3)
-        elif args.size == 'wide':
-            if args.layer == 'conv1':
-                filter_shape = (128, 3, 3)
-            if args.layer == 'conv2':
-                filter_shape = (256, 3, 3)
-        elif args.size == 'wide7':
-            if args.layer == 'conv1':
-                filter_shape = (128, 7, 7)
-            if args.layer == 'conv2':
-                filter_shape = (256, 7, 7)
-    elif args.dataset == 'cifar':
-        if args.size in ['presnet', 'resnet']:
-            filter_shape = (512, 3, 3)
-        if args.size == '1x':
-            filter_shape = (128, 3, 3)
+def param_generator(args, data, id):
 
     filter_volume = data
     layer_size = data.shape[2]
+    filter_shape = args.shapes[id]
     filters = filter_volume.reshape((-1, *filter_shape))
     rng_state = np.random.get_state()
     np.random.set_state(rng_state)
@@ -40,38 +20,10 @@ def param_generator(args, data, batch_size):
     return get_epoch
 
 
-def load(args, layer='conv2'):
-    if args.dataset == 'mnist':
-        if args.size == '1x':
-            if args.layer == 'conv1':
-                pdir = './params/mnist/1x/conv1/'
-                pshape = (32, 1, 3, 3)
-            if args.layer == 'conv2':
-                pdir = './params/mnist/1x/conv2/'
-                pshape = (64, 32, 3, 3)
-        elif args.size == 'wide':
-            if args.layer == 'conv1':
-                pdir = './params/mnist/wide/conv1/'
-                pshape = (128, 1, 3, 3)
-            if args.layer == 'conv2':
-                pdir = './params/mnist/wide/conv2/'
-                pshape = (256, 128, 3, 3)
-        elif args.size == 'wide7':
-            if args.layer == 'conv1':
-                pdir = './params/mnist/wide7/conv1/'
-                pshape = (128, 1, 7, 7)
-            if args.layer == 'conv2':
-                pdir = './params/mnist/wide7/conv2/'
-                pshape = (256, 128, 7, 7)
-
-    elif args.dataset == 'cifar':
-        if args.size == '1x':
-            pdir = './params/cifar/1x/conv2/'
-            pshape = (128, 64, 3, 3)
-        if args.size in ['presnet', 'resnet']:
-            pdir = './params/cifar/{}/layer4.1.conv2/'.format(args.size)
-            pshape = (512, 512, 3, 3)
-
+def load(args, id):
+    pdir = './params/{}/{}/{}/'.format(
+            args.dataset, args.model, args.stat['layer_names'][id])
+    pshape = args.shapes[id]
     paths = glob(pdir+'*.npy')
     data = np.zeros((len(paths), *pshape))
     for i in range(len(paths)):
@@ -80,5 +32,5 @@ def load(args, layer='conv2'):
     train_data = data[:len_t]
     val_data = data[len_t:]
     
-    return (param_generator(args, train_data, args.batch_size), 
-            param_generator(args, val_data, args.batch_size))
+    return (param_generator(args, train_data, id), 
+            param_generator(args, val_data, id))
