@@ -77,13 +77,13 @@ class Generator_fc(nn.Module):
         self.relu = nn.LeakyReLU(.2, inplace=True)
 
     def forward(self, x):
-        print ('G in: ', x.shape)
+        # print ('G in: ', x.shape)
         x = self.relu(self.linear1(x))
         x = self.relu(self.linear2(x))
         x = self.relu(self.linear3(x))
         x = self.linear_out(x)
         x = x.view(-1, self.lcd, self.lcd)
-        print ('G out: ', x.shape)
+        # print ('G out: ', x.shape)
         return x
 
 
@@ -180,7 +180,10 @@ def calc_gradient_penalty(args, netD, real_data, gen_data):
 
 
 def sample_x(args, gen, id):
+    print ('data {}'.format(id))
+    print (gen)
     data = next(gen)
+    print ('data {}\n{}'.format(id, data))
     x = torch.Tensor(data).cuda()
     x = x.view(*args.shapes[id])
     x = autograd.Variable(x)
@@ -202,8 +205,7 @@ def train_ae(args, netG, netE, x):
     x_fake = x_fake.view(*args.shapes[args.id])
     print ("==> G final out ", x_fake.shape)
     ae_loss = F.mse_loss(x_fake, x)
-    ae_loss.backward(torch.Tensor([1]).cuda())
-    return
+    return ae_loss
 
 
 def train_wadv(args, netDz, netE, x, z):
@@ -219,26 +221,21 @@ def train_adv(args, netD, netG, x, z):
     netD.zero_grad()
     print ("d real x, ", x.shape)
     D_real = netD(x).mean()
-    D_real.backward(torch.Tensor([-1]).cuda())
-
-    z = sample_z(args)
-    fake_z = ops.gen_layer(args, netG, z)
-    fake_z = fake_z.view(*args.shapes[args.id])
+    z = z.view(*args.shapes[args.id])
     # fake = netG(z)
-    print (" d fake z ", fake_z.shape)
-    D_fake = netD(fake_z).mean()
+    print (" d fake z ", z.shape)
+    D_fake = netD(z).mean()
     D_fake.backward(torch.Tensor([1]).cuda())
-
     gradient_penalty = calc_gradient_penalty(args, netD,
-            x.data, fake_z.data)
-    gradient_penalty.backward()
+            x.data, z.data)
+    return D_real, D_fake, gradient_penalty
+
+
+def train_clf(args, Z):
     """ calc classifier loss """
-    (clf_acc, clf_loss), _ = ops.clf_loss(args, fake_z)
+    (clf_acc, clf_loss), _ = ops.clf_loss(args, Z)
     clf_loss = clf_loss * args.beta
-    clf_loss.backward(torch.Tensor([1]).cuda())
-    D_cost = D_fake - D_real + gradient_penalty + clf_loss
-    Wasserstein_D = D_real - D_fake
-    return
+    return clf_acc, clf_loss
 
 
 def train_gen(args, netG):
@@ -246,9 +243,8 @@ def train_gen(args, netG):
     z = sample_z(args)
     fake = netG(z)
     G = netD(fake).mean()
-    G.backward(torch.Tensor([-1]).cuda())
     G_cost = -G
-    return
+    return G
 
 
 def train(args):
@@ -277,74 +273,87 @@ def train(args):
     torch.manual_seed(1)
 
     for iteration in range(0, args.epochs):
+        start_time = time.time()
+
+        """ Update AE """
+        print ("==> autoencoding layers")
+        for p in netD.parameters():
+            p.requires_grad = False  # to avoid computation
+        for id in range(args.stat['n_layers']):
+            print ("- layer ", id)
+            args.id = id
+            x = sample_x(args, param_gen[id], id)
+            ae_loss = train_ae(args, netG, netE, x)
+            ae_loss.backward()
+        optimizerE.step()
+        optimizerG.step()
+        print ('==> updated AE') 
+
+        """ Update Adversary """
+        for p in netD.parameters():  # reset requires_grad
+            p.requires_grad = True  # they are set to False below in netG update
+        
+        #for iter_d in range(5):
+        x = sample_x(args, param_gen[id], id)
+        z = ops.gen_layer(args, netG, sample_z(args))
         for id in range(args.stat['n_layers']):
             args.id = id
             print ('layer : ', id)
-            start_time = time.time()
+            d_real, d_fake, gp = train_adv(args, netD, x, z)
+            d_real.backward(torch.Tensor([-1]).cuda())
+            d_fake.backward()
+            gp.backward()
+            w1 = d_real - d_fake
+            layers.append(z)
+            z = ops.gen_layer(netE(z))  # Here we go
 
-            """ Update AE """
-            for p in netD.parameters():
-                p.requires_grad = False  # to avoid computation
-            x = sample_x(args, param_gen[id], id)
-            train_ae(args, netG, netE, x)
-            optimizerE.step()
-            optimizerG.step()
-            print ('==> updated AE') 
-            """ Update Adversary """
-            for p in netD.parameters():  # reset requires_grad
-                p.requires_grad = True  # they are set to False below in netG update
+        acc, loss = train_clf(args, layers)
+        clf_loss.backward()
+        d_cost = d_fake - d_real + gp + clf_loss
+        optimizerD.step()
             
-            for iter_d in range(5):
-                x = sample_x(args, param_gen[id], id)
-                z = sample_z(args)
-                train_adv(args, netD, netG, x, z)
-                optimizerD.step()
-                print ('==> updated D')
-                if args.use_wae:
-                    train_wadv(args, netDz, netE, x, z)
-                    optimizerDz.step()
-                    print ('==> updated Dz')
+        print ('==> updated D')
+        if args.use_wae:
+            train_wadv(args, netDz, netE, x, z)
+            optimizerDz.step()
+            print ('==> updated Dz')
 
-            train_gen(args, netG)
-            optimizerG.step()
-            print ('==> updated G')
-        
-            if iteration % 10 == 0:
-                print ('==> iter: ', iteration)
+        for id in range(args.stat['n_layers']):
+            args.id = id
+            g_cost = train_gen(args, netG)
+            g_cost.backward(torch.Tensor([-1]).cuda())
+        optimizerG.step()
+
+        print ('==> updated G')
+        if iteration % 10 == 0:
+            print ('==> iter: ', iteration)
         # Write logs
         if iteration % 100 == 0:
+            save_dir = './plots/{}/{}'.format(args.dataset, args.model)
+            path = 'params/sampled/{}/{}'.format(args.dataset, args.model)
+            utils.save_model(args, netE, optimizerE)
+            utils.save_model(args, netG, optimizerG)
+            utils.save_model(args, netD, optimizerD)
+            print ("==> saved model instances")
+            if not os.path.exists(path):
+                os.makedirs(path)
+            # samples = netG(z)
+            samples = []
+            l = ops.gen_layer(args, netG, z)
             for id in args.stat['n_layers']:
-                save_dir = './plots/{}/{}'.format(args.dataset, args.model)
-                utils.save_model(args, netE, optimizerE)
-                utils.save_model(args, netG, optimizerG)
-                utils.save_model(args, netD, optimizerD)
-                print ("==> saved model instances")
-                test_d_costs = []
-                for x in base_gen[id][1]():
-                    x = autograd.Variable(torch.Tensor(params).cuda())
-                    D_real = netD(x)
-                    test_d_cost = -D_real.mean().cpu().data.numpy()
-                    test_d_costs.append(test_d_cost)
-                
-                path = 'params/sampled/{}/{}'.format(args.dataset, args.model)
-                if not os.path.exists(path):
-                    os.makedirs(path)
+                args.id = id
                 z = sample_z(args)
-                # samples = netG(z)
-                # utils.save_samples(args, samples, iteration, path)
-                samples = ops.gen_layer(args, netG, z)
-                (acc, loss), (oracle_acc, oracle_loss) = ops.clf_loss(args, samples)
+                samples.append(l)
+                l = ops.gen_layer(netE(l))
+            (acc, loss), (oracle_acc, oracle_loss) = ops.clf_loss(args, samples)
             print ("****************")
             print('Iter ', iteration, 'Beta ', args.beta)
-            print('D cost', D_cost.cpu().data.numpy()[0])
-            print('G cost', G_cost.cpu().data.numpy()[0])
+            print('D cost', d_cost.cpu().data.numpy()[0])
+            print('G cost', g_cost.cpu().data.numpy()[0])
             print('AE cost', ae_loss.cpu().data.numpy()[0])
-            print('W1 distance', Wasserstein_D.cpu().data.numpy()[0])
-            print ('clf accuracy', clf_acc)
-            print ('oracle accuracy', oracle_acc)
-            print ('clf loss', clf_loss/args.beta)
-            print ('oracle loss', oracle_loss/args.beta)
-            # print sample filter
+            print('W1 distance', w1.cpu().data.numpy()[0])
+            print ('clf -> oracle (acc)', clf_acc, oracle_acc)
+            print ('clf -> oracle (loss)', clf_loss/args.beta, oracle_loss/args.beta)
             print ('filter 1: ', samples[0, 0, :, :])
             print ("****************")
 

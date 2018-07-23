@@ -25,6 +25,7 @@ def load(args, id):
             args.dataset, args.model, args.stat['layer_names'][id])
     pshape = args.shapes[id]
     paths = glob(pdir+'*.npy')
+    print ('pdir', len(paths))
     data = np.zeros((len(paths), *pshape))
     for i in range(len(paths)):
         data[i] = np.load(paths[i])
