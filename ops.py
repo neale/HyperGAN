@@ -25,60 +25,19 @@ import torch.nn.init as init
 param_dir = './params/sampled/mnist/test1/'
 
 
-def calc_gradient_penalty(args, model, real_data, gen_data):
-    batch_size = args.batch_size
-    if args.dataset == 'mnist':
-        if args.size == '1x':
-            if args.layer == 'conv1':
-                datashape = (3, 3, 32)
-            if args.layer == 'conv2':
-                datashape = (3, 3, 64)
-        if args.size == 'wide':
-            if args.layer == 'conv1':
-                datashape = (3, 3, 128, 1)
-            if args.layer == 'conv2':
-                datashape = (3, 3, 256, 128)
-        if args.size == 'wide7':
-            if args.layer == 'conv1':
-                datashape = (128, 1, 7, 7)
-            if args.layer == 'conv2':
-                datashape = (128, 256, 7, 7)
-    elif args.dataset == 'cifar':
-        if args.size in ['presnet', 'resnet']:
-            datashape = (3, 3, 512)
-        if args.size == '1x':
-            datashape = (3, 3, 128)
-
-    # alpha = torch.rand(batch_size, 1)
-    alpha = torch.rand(datashape[0], 1)
-    # if args.layer == 'conv1':
-    #     alpha = alpha.expand(real_data.size()).cuda()
-    # alpha = alpha.expand(batch_size, int(real_data.nelement()/batch_size))
-    # alpha = alpha.contiguous().view(batch_size, *(datashape[::-1])).cuda()
-    alpha = alpha.expand(datashape[0], int(real_data.nelement()/datashape[0]))
-    alpha = alpha.contiguous().view(*datashape).cuda()
-    interpolates = alpha * real_data + ((1 - alpha) * gen_data).cuda()
-    interpolates = autograd.Variable(interpolates, requires_grad=True)
-    disc_interpolates = model(interpolates)
-    gradients = autograd.grad(outputs=disc_interpolates,
-            inputs=interpolates,
-            grad_outputs=torch.ones(disc_interpolates.size()).cuda(),
-            create_graph=True,
-            retain_graph=True,
-            only_inputs=True)[0]
-
-    gradients = gradients.view(gradients.size(0), -1)
-    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * args.gp
-    return gradient_penalty
-
-
 def gen_layer(args, netG, data):
     init = []
-    iters = args.shapes[args.id][0] // args.batch_size
+    shape = args.shapes[args.id]
+    if len(shape) == 2:  # Linear layer, handle differently
+        # Everything should be a multiple of the first smallest layer 
+        iters = shape[0]*shape[1] // args.gcd
+    else:
+        iters = shape[0] // args.batch_size
     for i in range(iters):
         gen_params = netG(data)
         init.append(gen_params)
     g = torch.stack(init)
+    g = g.view(shape)
     return g
  
 
@@ -117,5 +76,3 @@ def init_params(net):
             init.normal(m.weight, std=1e-3)
             if m.bias:
                 init.constant(m.bias, 0)
-
-

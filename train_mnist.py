@@ -24,7 +24,7 @@ def load_args():
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
-    parser.add_argument('--net', type=str, default='fcn', metavar='N',
+    parser.add_argument('--net', type=str, default='small', metavar='N',
                         help='network to train [tiny, wide, wide7, fcn]')
 
 
@@ -191,6 +191,7 @@ class Small(nn.Module):
 
     def forward(self, x):
         x = self.conv1(x)
+        print (x.shape)
         x = x.view(-1, 3136)
         x = self.linear(x)
         return x
@@ -246,16 +247,20 @@ def train(model):
     return acc
 
 
-def test(model, epoch=None):
+def test(model, epoch=None, grad=False):
     model.eval()
     _, test_loader = load_data()
     test_loss = 0
     correct = 0
     criterion = nn.CrossEntropyLoss()
     for data, target in test_loader:
-        data, target = Variable(data, volatile=True).cuda(), Variable(target).cuda()
+        data, target = Variable(data).cuda(), Variable(target).cuda()
         output = model(data)
-        test_loss += criterion(output, target).data[0] # sum up batch loss
+        if grad is False:
+            test_loss += criterion(output, target).data[0] # sum up batch loss
+        else:
+            test_loss += criterion(output, target)
+
         pred = output.data.max(1, keepdim=True)[1] # get the index of the max log-probability
         correct += pred.eq(target.data.view_as(pred)).long().cpu().sum()
 
@@ -297,6 +302,52 @@ def extract_weights_all(args, model, id):
             os.makedirs(save_dir)
         print ('saving param size: ', params.shape)
         np.save('./params/mnist/{}/{}/{}_{}'.format(args.net, l, l, id), params)
+
+
+def measure_models(m1, m2, i):
+    m1_conv = m1['conv1.0.weight'].view(-1)
+    m2_conv = m2['conv1.0.weight'].view(-1)
+    m1_linear = m1['linear.weight']
+    m2_linear = m2['linear.weight']
+    
+    print (m1_conv.shape, m1_linear.mean(0).shape)
+    
+    l1_conv = (m1_conv - m2_conv).abs().sum()
+    l1_linear = (m1_linear - m2_linear).abs().sum()
+    print ("\nL1 Dist: {} - {}".format(l1_conv, l1_linear))
+
+    l2_conv = np.linalg.norm(m1_conv - m2_conv)
+    l2_linear = np.linalg.norm(m1_linear - m2_linear)
+    print ("L2 Dist: {} - {}".format(l2_conv, l2_linear))
+
+    linf_conv = np.max((m1_conv-m2_conv).abs().cpu().numpy())
+    linf_linear = np.max((m1_linear-m2_linear).abs().cpu().numpy())
+    print ("Linf Dist: {} - {}".format(linf_conv, linf_linear))
+
+    cov_m1_m2_conv = np.cov(m1_conv, m2_conv)[0, 1]
+    cov_m1_m2_linear = np.cov(m1_linear, m2_linear)[0, 1]
+    print ("Cov m1-m2: {} - {}".format(cov_m1_m2_conv, cov_m1_m2_linear))
+
+    cov_m1_conv_linear = np.cov(m1_conv, m1_linear.mean(0))[0, 1]
+    cov_m2_conv_linear = np.cov(m2_conv, m2_linear.mean(0))[0, 1]
+    print ("Cov m1-conv-linear: {} - {}\n\n".format(cov_m1_conv_linear, cov_m2_conv_linear))
+   
+    return
+    utils.plot_histogram([m1_conv.view(-1).cpu().numpy(), m2_conv.view(-1).cpu().numpy()],
+            save=False)
+    utils.plot_histogram([m1_linear.view(-1).cpu().numpy(), m2_linear.view(-1).cpu().numpy()],
+            save=False)
+    
+    for l, name in [(m1_conv, 'conv1.0'), (m1_linear, 'linear')]:
+        params = l.cpu().numpy()
+        save_dir = 'params/mnist/{}/{}'.format(args.net, name)
+        if not os.path.exists(save_dir):
+            print ("making ", save_dir)
+            os.makedirs(save_dir)
+        path = '{}/{}_{}.npy'.format(save_dir, name, i)
+        print (i)
+        print ('saving param size: ', params.shape, 'to ', path)
+        np.save(path, params)
 
 
 """ 
@@ -343,27 +394,35 @@ def run_model_search(args):
         print (model)
         model = w_init(model, 'normal')
         acc = train(model)
-        extract_weights_all(args, model, i)
-        torch.save(model.state_dict(),
-                mdir+'mnist/{}/mnist_model_{}_{}.pt'.format(args.net, i, acc))
+        #extract_weights_all(args, model, i)
+        #torch.save(model.state_dict(),
+        #        mdir+'mnist/{}/mnist_model_{}_{}.pt'.format(args.net, i, acc))
 
 
 """ Load a batch of networks to extract weights """
 def load_models(args):
    
     model = get_network(args)
-    paths = glob('./models/mnist/{}/*.pt'.format(args.net))
+    paths = glob(mdir+'mnist/{}/*.pt'.format(args.net))
     natpaths = natsort.natsorted(paths)
+    ckpts = []
+    print (len(paths))
     for i, path in enumerate(natpaths):
         print ("loading model {}".format(path))
         ckpt = torch.load(path)
-        model.load_state_dict(ckpt)
+        ckpts.append(ckpt)
+        #model.load_state_dict(ckpt)
         #test(model, 0)
-        extract_weights_all(args, model, i)
+        #extract_weights_all(args, model, i)
 
+    for i in range(len(ckpts)):
+        for j in range(i, len(ckpts)):
+            model1 = ckpts[i]
+            model2 = ckpts[j]
+            measure_models(model1, model2, i)
 
 if __name__ == '__main__':
     args = load_args()
     
-    run_model_search(args)
     load_models(args)
+    # run_model_search(args)

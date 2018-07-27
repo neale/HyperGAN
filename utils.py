@@ -48,12 +48,18 @@ def load_model(net, optim, path):
 
 
 def plot_histogram(x, save=False, id=None):
-    x = x.flatten()
-    plt.ion()
-    n, bins, patches = plt.hist(x, 50, density=True, alpha=0.75)
+    if save is True:
+        plt.ion()
+    if type(x) is list:
+        for i in range(len(x)):
+            n, bins, patches = plt.hist(x[i], 50, density=True, alpha=0.75, label=str(i))
+    else:
+        n, bins, patches = plt.hist(x, 50, density=True, alpha=0.75)
+
     plt.xlabel('params')
+    plt.legend(loc='upper right')
     plt.ylabel('probability')
-    plt.title('Distribution of conv2 parameters')
+    plt.title(id)
     plt.grid(True)
     if save is True:
         plt.draw()
@@ -68,9 +74,14 @@ def dataset_iterator(args, id):
 
 
 def inf_train_gen(train_gen):
-    while True:
-        for params in train_gen():
-            yield params
+    if type(train_gen) is list:
+        while True:
+            for (p1) in (train_gen[0](), train_gen[1]()):
+                yield (p1)
+    else:
+        while True:
+            for params in train_gen():
+                yield params
 
 
 def load_params(flat=True):
@@ -104,27 +115,26 @@ def test_samples(args, params):
     paths = natsort.natsorted(glob(model_dir+'{}/{}/*.pt'.format(
         args.dataset, args.model)))
     id = np.random.randint(300)
-    if args.dataset == 'mnist':
-        model = mnist.small().cuda()
-        test = mnist.test
-        layer_name = args.layer+'.0.weight'
-    elif args.dataset == 'cifar':
-        if args.model == 'presnet':
-            model = PreActResNet18().cuda()
-        if args.model == 'resnet':
-            model = ResNet18().cuda()
-        test = cifar.test
-        if args.size in ['presnet', 'resnet']:
-            layer_name = 'layer4.1.conv2'
-        layer_name = args.layer+'.weight'
+    model_fn = getattr(mnist, args.stat['name'])
+    model = model_fn().cuda()
     model.load_state_dict(torch.load(paths[id]))
-    oracle_acc, oracle_loss = test(model)
+    test = mnist.test
+    oracle_acc, oracle_loss = test(model, grad=False)
     state = model.state_dict()
-    conv2 = state[layer_name]
-    state[layer_name] = params.data
-    # plot_histogram(params, save=True, id=str(id)+'-'+str(iter))
-    model.load_state_dict(state)
-    acc, loss = test(model)
+    if args.layer == 'all':
+        assert type(params) == list
+        layers = zip(args.stat['layer_names'], params)
+        for i, (name, params) in enumerate(layers):
+            name = name + '.weight'
+            loader = state[name]
+            state[name] = params.data
+            assert state[name].equal(loader) == False
+            # plot_histogram(params, save=True, id=str(id)+'-'+str(iter))
+            model.load_state_dict(state)
+        acc, loss = test(model, grad=True)
+    else:
+        raise NotImplementedError
+
     return (acc, loss), (oracle_acc, oracle_loss)
 
 
