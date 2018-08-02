@@ -42,6 +42,13 @@ def nets():
             'shapes': [(64, 1, 7, 7), (10, 3136)],
             'base_shape': 7
             }
+    networks['small2'] = {
+            'name': 'Small2',
+            'n_layers': 3,
+            'layer_names': ['conv1.0', 'conv2.0', 'linear'],
+            'shapes': [(32, 1, 5, 5), (32, 32, 5, 5), (10, 512)],
+            'base_shape': 5
+            }
     networks['tiny'] = {
             'name': 'Tiny',
             'n_layers': 4,

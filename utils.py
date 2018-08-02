@@ -28,23 +28,23 @@ param_dir = './params/sampled/mnist/test1/'
 model_dir = '/data0/models/HyperGAN/models/'
 
 
-def save_model(args, net, optim):
-    path = 'HyperGAN/{}/{}/{}'.format(args.dataset, net.name, args.model)
+def save_model(args, net, optim, ex_name):
+    path = 'HyperGAN/{}/{}/{}/{}'.format(args.dataset, ex_name, args.model, net.name)
     path = model_dir + path
     state_dict = net.state_dict()
     torch.save({
-        'epoch': epoch + 1,
         'state_dict': state_dict,
         'optimizer': optim.state_dict(),
         }, path)
 
 
-def load_model(net, optim, path):
+def load_model(args, net, optim, ex_name):
+    path = 'HyperGAN/{}/{}/{}/{}'.format(args.dataset, ex_name, args.model, net.name)
+    path = model_dir + path
     ckpt = torch.load(path)
-    epoch = ckpt['epoch']
     net.load_state_dict(ckpt['state_dict'])
     optim.load_state_dict(ckpt['optimizer'])
-    return net, optim, epoch
+    return net, optim
 
 
 def plot_histogram(x, save=False, id=None):
@@ -110,16 +110,19 @@ def save_samples(args, samples, iter, path):
     return
 
 
-def test_samples(args, params):
+def test_samples(args, params, train=False):
     # take random model
     paths = natsort.natsorted(glob(model_dir+'{}/{}/*.pt'.format(
         args.dataset, args.model)))
-    id = np.random.randint(300)
+    id = np.random.randint(len(paths)-1)
     model_fn = getattr(mnist, args.stat['name'])
     model = model_fn().cuda()
     model.load_state_dict(torch.load(paths[id]))
-    test = mnist.test
-    oracle_acc, oracle_loss = test(model, grad=False)
+    if train is True:
+        fn = mnist.train
+    else:
+        fn = mnist.test
+    #oracle_acc, oracle_loss = fn(model, grad=False)
     state = model.state_dict()
     if args.layer == 'all':
         assert type(params) == list
@@ -131,11 +134,11 @@ def test_samples(args, params):
             assert state[name].equal(loader) == False
             # plot_histogram(params, save=True, id=str(id)+'-'+str(iter))
             model.load_state_dict(state)
-        acc, loss = test(model, grad=True)
+        acc, loss = fn(model, grad=True)
     else:
         raise NotImplementedError
 
-    return (acc, loss), (oracle_acc, oracle_loss)
+    return (acc, loss), (None, None)
 
 
 _, term_width = os.popen('stty size', 'r').read().split()
