@@ -115,13 +115,22 @@ def test_samples(args, params, train=False):
     paths = natsort.natsorted(glob(model_dir+'{}/{}/*.pt'.format(
         args.dataset, args.model)))
     id = np.random.randint(len(paths)-1)
-    model_fn = getattr(mnist, args.stat['name'])
+    if args.dataset == 'cifar':
+        model_fn = getattr(cifar, args.stat['name'])
+    else:
+        model_fn = getattr(mnist, args.stat['name'])
     model = model_fn().cuda()
     model.load_state_dict(torch.load(paths[id]))
     if train is True:
-        fn = mnist.train
+        if args.dataset == 'cifar':
+            fn = cifar.train
+        else:
+            fn = mnist.train
     else:
-        fn = mnist.test
+        if args.dataset == 'cifar':
+            fn = cifar.test
+        else:
+            fn = mnist.test
     #oracle_acc, oracle_loss = fn(model, grad=False)
     state = model.state_dict()
     if args.layer == 'all':
@@ -138,7 +147,7 @@ def test_samples(args, params, train=False):
     else:
         raise NotImplementedError
 
-    return (acc, loss), (None, None)
+    return acc, loss
 
 
 _, term_width = os.popen('stty size', 'r').read().split()

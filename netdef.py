@@ -56,4 +56,12 @@ def nets():
             'shapes': [(8, 1, 3, 3), (16, 8, 3, 3), (128, 256), (10, 128)],
             'base_shape': 3
             }
+    networks['cnet'] = {
+            'name': 'CNet',
+            'n_layers': 4,
+            'layer_names': ['conv1', 'conv2', 'fc1', 'fc2'],
+            'shapes': [(64, 3, 3, 3), (128, 64, 3, 3), (128, 8192), (10, 128)],
+            'base_shape': 3
+            }
+
     return networks

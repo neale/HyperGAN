@@ -36,14 +36,15 @@ def load_data():
     torch.cuda.manual_seed(1)
     kwargs = {'num_workers': 1, 'pin_memory': True}
     train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('./data', train=True, download=True,
+        datasets.MNIST('./data', train=True, download=False,
                        transform=transforms.Compose([
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])),
         batch_size=64, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('./data', train=False, transform=transforms.Compose([
+        datasets.MNIST('./data', train=False, download=False,
+                       transform=transforms.Compose([
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])),
@@ -260,7 +261,7 @@ def train(model, grad=False):
             param.requires_grad = False
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3)
     #print (list(model.children())
-    for epoch in range(2):
+    for epoch in range(10):
         model.train()
         for batch_idx, (data, target) in enumerate(train_loader):
             data, target = Variable(data).cuda(), Variable(target).cuda()

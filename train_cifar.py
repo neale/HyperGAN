@@ -12,34 +12,55 @@ import presnet
 import resnet
 import natsort
 import utils
+import argparse
 from glob import glob
 
-# Data
-print('==> Preparing data..')
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
 
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
+mdir = '/data0/models/HyperGAN/models/'
 
-trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                        download=True,
-                                        transform=transform_train)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=128,
-                                          shuffle=True,
-                                          num_workers=2)
+def load_args():
+    parser = argparse.ArgumentParser(description='PyTorch CIFAR Example')
+    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+                        help='input batch size for training (default: 64)')
+    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+                        help='input batch size for testing (default: 1000)')
+    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+                        help='number of epochs to train (default: 10)')
+    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+                        help='learning rate (default: 0.01)')
+    parser.add_argument('--net', type=str, default='cnet', metavar='N',
+                        help='network to train [tiny, wide, wide7, fcn]')
 
-testset = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                       download=True,
-                                       transform=transform_test)
-testloader = torch.utils.data.DataLoader(testset, batch_size=100,
-                                         shuffle=False, num_workers=2)
+
+    args = parser.parse_args()
+    return args
+
+
+def load_data():
+    transform_train = transforms.Compose([
+	transforms.RandomCrop(32, padding=4),
+	transforms.RandomHorizontalFlip(),
+	transforms.ToTensor(),
+	transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+	])
+    transform_test = transforms.Compose([
+	transforms.ToTensor(),
+	transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+	])
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+					    download=False,
+					    transform=transform_train)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=64,
+					      shuffle=True,
+					      num_workers=2)
+
+    testset = torchvision.datasets.CIFAR10(root='./data', train=False,
+					   download=False,
+					   transform=transform_test)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=64,
+					     shuffle=False, num_workers=2)
+
+    return trainloader, testloader
 
 
 class WideNet(nn.Module):
@@ -66,9 +87,9 @@ class WideNet(nn.Module):
         return x
 
 
-class Net(nn.Module):
+class CNet(nn.Module):
     def __init__(self):
-        super(Net, self).__init__()
+        super(CNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, 3, padding=1)
         self.bn1 = nn.BatchNorm2d(64)
         self.conv2 = nn.Conv2d(64, 128, 3, padding=1)
@@ -121,26 +142,29 @@ class TinyNet(nn.Module):
         return x
 
 
-def train(model):
-
+def train(model, grad=False, e=2):
+    
+    train_loss, train_acc = 0., 0.
+    train_loader, _ = load_data()
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+    for child in list(model.children())[:-1]:
+        # print ('removing {}'.format(child))
+        for param in child.parameters():
+            param.requires_grad = False
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.1)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
-    for epoch in range(400):
+
+    for epoch in range(1):
         scheduler.step()
         model.train()
-        acc = 0
-        total = 0
-        correct = 0
-        train_loss = 0
-        print ("Epoch {}\n".format(epoch))
-        for i, (inputs, labels) in enumerate(trainloader, 0):
-            inputs, labels = Variable(inputs).cuda(), Variable(labels).cuda()
+        for i, (data, target) in enumerate(train_loader):
+            data, target = Variable(data).cuda(), Variable(target).cuda()
             optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
+            output = model(data)
+            loss = criterion(output, target)
             loss.backward()
             optimizer.step()
+            """
             train_loss += loss.data[0]
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
@@ -149,23 +173,34 @@ def train(model):
             utils.progress_bar(i, len(trainloader),
                          'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                      % (train_loss/(i+1), 100.*correct/total, correct, total))
-    acc = test(model)
-    return acc
+            """
+        acc, loss = test(model)
+    return acc, loss
 
 
-def test(model):
+def test(model, epoch=None, grad=True):
     model.eval()
+    _, test_loader = load_data()
+    test_loss = 0
     correct = 0
-    total = 0
-    for (images, labels) in testloader:
-        images, labels = Variable(images).cuda(), labels.cuda()
-        outputs = model(images)
-        _, predicted = torch.max(outputs.data, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum()
+    criterion = nn.CrossEntropyLoss()
+    for data, target in test_loader:
+        data, target = Variable(data).cuda(), Variable(target).cuda()
+        output = model(data)
+        if grad is False:
+            test_loss += criterion(output, target).data[0]
+        else:
+            test_loss += criterion(output, target)
+        pred = output.data.max(1, keepdim=True)[1]
+        correct += pred.eq(target.data.view_as(pred)).long().cpu().sum()
+    test_loss /= len(test_loader.dataset)
+    acc = correct / len(test_loader.dataset)
+    if epoch:
+        print ('Average loss: {}, Accuracy: {}/{} ({}%)'.format(
+            test_loss, correct, len(test_loader.dataset),
+            100. * correct / len(test_loader.dataset)))
 
-    acc = float(correct) / total
-    return acc
+    return acc, test_loss
 
 
 def extract_weights(model, id):
@@ -188,6 +223,27 @@ def extract_weights(model, id):
         np.save('./params/cifar/resnet/{}/cifar_params_{}_{}'.format(dir, dir, id), params)
 
 
+def extract_weights_all(args, model, id):
+    state = model.state_dict()
+    conv_names = [x for x in list(state.keys()) if 'conv' in x]
+    fc_names = [x for x in list(state.keys()) if 'fc' in x]
+    cnames = [x for x in conv_names if 'weight' in x]
+    fnames = [x for x in fc_names if 'weight' in x]
+    names = cnames + fnames
+    print (names)
+    for i, name in enumerate(names):
+        print (name)
+        l = name[:-7]
+        conv = state[name]
+        params = conv.cpu().numpy()
+        save_dir = 'params/cifar/{}/{}/'.format(args.net, l)
+        if not os.path.exists(save_dir):
+            print ("making ", save_dir)
+            os.makedirs(save_dir)
+        print ('saving param size: ', params.shape)
+        np.save('./params/cifar/{}/{}/{}_{}'.format(args.net, l, l, id), params)
+
+
 def w_init(model, dist='normal'):
     for layer in model.modules():
         if isinstance(layer, nn.Conv2d):
@@ -198,36 +254,48 @@ def w_init(model, dist='normal'):
     return model
 
 
-def run_model_search():
+def get_network(args):
+    if args.net == 'cnet':
+        model = CNet().cuda()
+    elif args.net == 'wide':
+        model = WideNet().cuda()
+    elif args.net == 'tiny':
+        model = TinyNet().cuda()
+    else:
+        raise NotImplementedError
+    return model
+
+
+def run_model_search(args):
     for i in range(50, 100):
         print ("\nRunning CIFAR Model {}...".format(i))
-        model = resnet.ResNet18().cuda()
-        # model = w_init(model, 'normal')
+        model = get_network(args)
+        model = w_init(model, 'normal')
         acc = train(model)
-        extract_weights(model, i)
+        extract_weights_all(model, i)
         torch.save(model.state_dict(),
-                   './models/cifar/resnet/cifar_{}.pt'.format(i, acc))
+                mdir+'cifar/{}/cifar_model_{}_{}'.format(args.net, i, acc))
 
 
-def load_models():
-    model = resnet.ResNet18().cuda()
-    paths = glob('./models/cifar/resnet/*.pt')
+""" Load a batch of networks to extract weights """
+def load_models(args):
+
+    model = get_network(args)
+    paths = glob(mdir+'cifar/{}/*.pt'.format(args.net))
     natpaths = natsort.natsorted(paths)
+    ckpts = []
+    print (len(paths))
     for i, path in enumerate(natpaths):
         print ("loading model {}".format(path))
         ckpt = torch.load(path)
+        ckpts.append(ckpt)
         model.load_state_dict(ckpt)
-        """
-        test_new(model)
-        import sys
-        sys.exit(0)
-        for k in range(10):
-            test(model, k)
-        """
-        extract_weights(model, i)
+        test(model, 0)
+        extract_weights_all(args, model, i)
 
 
 if __name__ == '__main__':
-    load_models()
-    run_model_search()
+    args = load_args()
+    #run_model_search(args)
+    load_models(args)
 
