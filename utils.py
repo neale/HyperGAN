@@ -28,8 +28,8 @@ param_dir = './params/sampled/mnist/test1/'
 model_dir = '/data0/models/HyperGAN/models/'
 
 
-def save_model(args, net, optim, ex_name):
-    path = 'HyperGAN/{}/{}/{}/{}'.format(args.dataset, ex_name, args.model, net.name)
+def save_model(args, net, optim, ex_name, suff=None):
+    path = 'HyperGAN/{}/{}/{}/{}_{}'.format(args.dataset, ex_name, args.model, net.name, suff)
     path = model_dir + path
     state_dict = net.state_dict()
     torch.save({

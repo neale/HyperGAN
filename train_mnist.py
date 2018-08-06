@@ -261,7 +261,7 @@ def train(model, grad=False):
             param.requires_grad = False
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3)
     #print (list(model.children())
-    for epoch in range(10):
+    for epoch in range(2):
         model.train()
         for batch_idx, (data, target) in enumerate(train_loader):
             data, target = Variable(data).cuda(), Variable(target).cuda()
