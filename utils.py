@@ -35,16 +35,21 @@ def save_model(args, net, optim, ex_name, suff=None):
     torch.save({
         'state_dict': state_dict,
         'optimizer': optim.state_dict(),
+        'best_acc': args.best_acc,
+        'best_loss': args.best_loss
         }, path)
 
 
-def load_model(args, net, optim, ex_name):
-    path = 'HyperGAN/{}/{}/{}/{}'.format(args.dataset, ex_name, args.model, net.name)
+def load_model(args, net, optim, ex_name, m_name):
+    path = 'HyperGAN/{}/{}/{}/{}/{}'.format(
+            args.dataset, ex_name, args.model, net.name, m_name)
     path = model_dir + path
     ckpt = torch.load(path)
     net.load_state_dict(ckpt['state_dict'])
     optim.load_state_dict(ckpt['optimizer'])
-    return net, optim
+    acc = ckpt.load_state_dict(ckpt['best_acc'])
+    loss = ckpt.load_state_dict(ckpt['best_loss'])
+    return net, optim, (acc, loss)
 
 
 def plot_histogram(x, save=False, id=None):
