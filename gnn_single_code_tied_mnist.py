@@ -112,21 +112,20 @@ class GeneratorW2(nn.Module):
         for k, v in vars(args).items():
             setattr(self, k, v)
         self.name = 'GeneratorW2'
-        self.linear1 = nn.Linear(128, 256)
-        self.linear2 = nn.Linear(256, 1600)
-        self.linear3 = nn.Linear(1600, 6400)
-        self.linear4 = nn.Linear(6400, 25600)
-        self.bn1 = nn.BatchNorm2d(256)
-        self.bn2 = nn.BatchNorm2d(1600)
+        self.linear1 = nn.Linear(800, 1600)
+        self.linear2 = nn.Linear(1600, 6400)
+        self.linear3 = nn.Linear(6400, 25600)
+        self.bn1 = nn.BatchNorm2d(1600)
+        self.bn2 = nn.BatchNorm2d(6400)
         self.bn3 = nn.BatchNorm2d(6400)
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
         #print ('W2 in: ', x.shape)
+        x = x.view(-1, 800)
         x = self.relu(self.bn1(self.linear1(x)))
         x = self.relu(self.bn2(self.linear2(x)))
-        x = self.relu(self.bn3(self.linear3(x)))
-        x = self.linear4(x)
+        x = self.linear3(x)
         x = x.view(-1, 32, 32, 5, 5)
         #print ('W2 out: ', x.shape)
         return x
@@ -138,15 +137,16 @@ class GeneratorW3(nn.Module):
         for k, v in vars(args).items():
             setattr(self, k, v)
         self.name = 'GeneratorLinear'
-        self.linear1 = nn.Linear(128, 256)
-        self.linear2 = nn.Linear(256, 256)
-        self.linear3 = nn.Linear(256, 512*10)
-        self.bn1 = nn.BatchNorm2d(256)
-        self.bn2 = nn.BatchNorm2d(256)
+        self.linear1 = nn.Linear(25600, 12800)
+        self.linear2 = nn.Linear(12800, 6400)
+        self.linear3 = nn.Linear(6400, 5120)
+        self.bn1 = nn.BatchNorm2d(12800)
+        self.bn2 = nn.BatchNorm2d(6400)
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
         #print ('W3 in : ', x.shape)
+        x = x.view(-1, 25600)
         x = self.relu(self.bn1(self.linear1(x)))
         x = self.relu(self.bn2(self.linear2(x)))
         x = self.linear3(x)
@@ -306,6 +306,16 @@ def train(args):
     optimizerW2 = optim.Adam(W2.parameters(), lr=3e-4, betas=(0.5, 0.9))#, weight_decay=1e-4)
     optimizerW3 = optim.Adam(W3.parameters(), lr=3e-4, betas=(0.5, 0.9))#, weight_decay=1e-4)
     
+    best_test_acc, best_test_loss = 0.95, 0.001
+    args.best_loss, args.best_acc = best_test_loss, best_test_acc
+    if args.resume:
+        netE, optimizerE = load_model(args, netE, optimizerE, 'single_code_tied', m1)
+        W1, optimizerW1 = load_model(args, W1, optimizerW1, 'single_code_tied', m2)
+        W2, optimizerW2 = load_model(args, W2, optimizerW2, 'single_code_tied', m3)
+        W3, optimizerW3, stats = load_model(args, W3, optimizerW3, 'single_code_tied', m4)
+        best_test_acc, best_test_loss = stats
+        print ('==> resuming models at ', stats)
+
     mnist_train, mnist_test = load_mnist()
     base_gen = datagen.load(args)
     w1_gen = utils.inf_train_gen(base_gen[0])
@@ -315,7 +325,6 @@ def train(args):
     one = torch.FloatTensor([1]).cuda()
     mone = (one * -1).cuda()
    
-    best_test_loss, best_test_acc = np.inf, 0.
     for _ in range(1000):
         for batch_idx, (data, target) in enumerate(mnist_train):
 
@@ -377,6 +386,14 @@ def train(args):
                 print ('Test Accuracy: {}, Test Loss: {}'.format(test_acc, test_loss))
                 # print ('FC Accuracy: {}, FC Loss: {}'.format(y_acc, y_loss))
                 if test_loss < best_test_loss or test_acc > best_test_acc:
+                    print ('==> new best stats, saving')
+                    if test_loss < best_test_loss:
+                        best_test_loss = test_loss
+                        args.best_loss = test_loss
+                    if test_acc > best_test_acc:
+                        best_test_acc = test_acc
+                        args.best_acc = test_acc
+                    utils.save_model(args, netE, optimizerE, 'single_code1', test_acc)
                     utils.save_model(args, W1, optimizerW1, 'single_code1', test_acc)
                     utils.save_model(args, W2, optimizerW2, 'single_code1', test_acc)
                     utils.save_model(args, W3, optimizerW3, 'single_code1', test_acc)
