@@ -21,15 +21,15 @@ mdir = '/data0/models/HyperGAN/models/'
 def load_args():
     parser = argparse.ArgumentParser(description='PyTorch CIFAR Example')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
-                        help='input batch size for training (default: 64)')
+            help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
-                        help='input batch size for testing (default: 1000)')
+            help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
-                        help='number of epochs to train (default: 10)')
+            help='number of epochs to train (default: 10)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
-                        help='learning rate (default: 0.01)')
-    parser.add_argument('--net', type=str, default='cnet', metavar='N',
-                        help='network to train [tiny, wide, wide7, fcn]')
+            help='learning rate (default: 0.01)')
+    parser.add_argument('--net', type=str, default='ctiny', metavar='N',
+            help='network to train [ctiny, wide, wide7, cnet]')
 
 
     args = parser.parse_args()
@@ -38,27 +38,27 @@ def load_args():
 
 def load_data():
     transform_train = transforms.Compose([
-	transforms.RandomCrop(32, padding=4),
-	transforms.RandomHorizontalFlip(),
-	transforms.ToTensor(),
-	transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-	])
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
     transform_test = transforms.Compose([
-	transforms.ToTensor(),
-	transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-	])
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
-					    download=False,
-					    transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=64,
-					      shuffle=True,
-					      num_workers=2)
+            download=False,
+            transform=transform_train)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=512,
+            shuffle=True,
+            num_workers=2)
 
     testset = torchvision.datasets.CIFAR10(root='./data', train=False,
-					   download=False,
-					   transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=64,
-					     shuffle=False, num_workers=2)
+            download=False,
+            transform=transform_test)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=512,
+            shuffle=False, num_workers=2)
 
     return trainloader, testloader
 
@@ -110,53 +110,77 @@ class CNet(nn.Module):
         x = self.fc2(x)
         return x
 
-
-class TinyNet(nn.Module):
+"""
+class CTiny(nn.Module):
     def __init__(self):
-        super(TinyNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 8, 7, padding=2)
-        self.conv2 = nn.Conv2d(8, 16, 7, padding=4)
-        self.conv3 = nn.Conv2d(16, 16, 7, padding=2)
-        self.conv4 = nn.Conv2d(16, 32, 7, padding=4)
-        self.conv5 = nn.Conv2d(32, 32, 7, padding=2)
-        self.conv6 = nn.Conv2d(32, 64, 7, padding=2)
-        self.conv7 = nn.Conv2d(64, 64, 7, padding=2)
+        super(CTiny, self).__init__()
+        self.conv1 = nn.Conv2d(3, 16, 3)
+        self.conv2 = nn.Conv2d(16, 32, 3)
+        self.conv3 = nn.Conv2d(32, 64, 3)
+        self.conv4 = nn.Conv2d(64, 64, 3)
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(64*2*2, 128)
-        self.fc2 = nn.Linear(128, 10)
+        self.linear1 = nn.Linear(64*2*2, 128)
+        self.linear2 = nn.Linear(128, 10)
 
     def forward(self, x):
-        x = F.leaky_relu(self.conv1(x))
-        x = F.leaky_relu(self.conv2(x))
+        x = F.relu(self.conv1(x))
         x = self.pool(x)
-        x = F.leaky_relu(self.conv3(x))
-        x = F.leaky_relu(self.conv4(x))
+        x = F.relu(self.conv2(x))
         x = self.pool(x)
-        x = F.leaky_relu(self.conv5(x))
-        x = F.leaky_relu(self.conv6(x))
-        x = F.leaky_relu(self.conv7(x))
-        # print (x.size())
+        x = F.relu(self.conv3(x))
+        x = F.relu(self.conv4(x))
         x = x.view(-1, 64*2*2)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
+        x = F.relu(self.linear1(x))
+        x = self.linear2(x)
         return x
+"""
+class CTiny(nn.Module):
+    def __init__(self):
+        super(CTiny, self).__init__()
+        self.conv1 = nn.Conv2d(3, 16, 3)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.conv2 = nn.Conv2d(16, 32, 3)
+        self.bn2 = nn.BatchNorm2d(32)
+        self.conv3 = nn.Conv2d(32, 64, 3)
+        self.bn3 = nn.BatchNorm2d(64)
+        self.linear1 = nn.Linear(256, 64)
+        self.linear2 = nn.Linear(64, 10)
+        self.mpool = nn.MaxPool2d(2, 2)
+        self.apool = nn.AvgPool2d(2, 2)
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.mpool(out)
+        out = F.relu(self.bn2(self.conv2(out)))
+        out = self.mpool(out)
+        out = F.relu(self.bn3(self.conv3(out)))
+        out = self.apool(out)
+        out = out.view(out.size(0), -1)
+        out = F.relu(self.linear1(out))
+        out = self.linear2(out)
+        return out
 
 
 def train(model, grad=False, e=2):
-    
+
     train_loss, train_acc = 0., 0.
     train_loader, _ = load_data()
     criterion = nn.CrossEntropyLoss()
+    """
     for child in list(model.children())[:-1]:
         # print ('removing {}'.format(child))
         for param in child.parameters():
             param.requires_grad = False
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.1)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
+    """
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
+            lr=0.01, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50000, gamma=0.1)
 
-    for epoch in range(1):
+    for epoch in range(100):
         scheduler.step()
         model.train()
+        total = 0
+        correct = 0
         for i, (data, target) in enumerate(train_loader):
             data, target = Variable(data).cuda(), Variable(target).cuda()
             optimizer.zero_grad()
@@ -164,27 +188,25 @@ def train(model, grad=False, e=2):
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
-            """
             train_loss += loss.data[0]
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += predicted.eq(labels.data).cpu().sum()
+            _, predicted = torch.max(output.data, 1)
+            total += target.size(0)
+            correct += predicted.eq(target.data).cpu().sum()
             acc = 100. * correct / total
-            utils.progress_bar(i, len(trainloader),
-                         'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                     % (train_loss/(i+1), 100.*correct/total, correct, total))
-            """
-        acc, loss = test(model)
+            utils.progress_bar(i, len(train_loader),
+                    'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+                    % (train_loss/(i+1), 100.*correct/total, correct, total))
+        acc, loss = test(model, epoch)
     return acc, loss
 
 
-def test(model, epoch=None, grad=True):
+def test(model, epoch=None, grad=False):
     model.eval()
     _, test_loader = load_data()
     test_loss = 0
     correct = 0
     criterion = nn.CrossEntropyLoss()
-    for data, target in test_loader:
+    for i, (data, target) in enumerate(test_loader):
         data, target = Variable(data).cuda(), Variable(target).cuda()
         output = model(data)
         if grad is False:
@@ -192,6 +214,7 @@ def test(model, epoch=None, grad=True):
         else:
             test_loss += criterion(output, target)
         pred = output.data.max(1, keepdim=True)[1]
+        output = None
         correct += pred.eq(target.data.view_as(pred)).long().cpu().sum()
     test_loss /= len(test_loader.dataset)
     acc = correct / len(test_loader.dataset)
@@ -248,7 +271,7 @@ def w_init(model, dist='normal'):
     for layer in model.modules():
         if isinstance(layer, nn.Conv2d):
             if dist == 'normal':
-                nn.init.normal(layer.weight.data)
+                nn.init.normal_(layer.weight.data)
             if dist == 'uniform':
                 nn.init.kaiming_uniform(layer.weight.data)
     return model
@@ -259,15 +282,15 @@ def get_network(args):
         model = CNet().cuda()
     elif args.net == 'wide':
         model = WideNet().cuda()
-    elif args.net == 'tiny':
-        model = TinyNet().cuda()
+    elif args.net == 'ctiny':
+        model = CTiny().cuda()
     else:
         raise NotImplementedError
     return model
 
 
 def run_model_search(args):
-    for i in range(50, 100):
+    for i in range(0, 100):
         print ("\nRunning CIFAR Model {}...".format(i))
         model = get_network(args)
         model = w_init(model, 'normal')
@@ -291,11 +314,11 @@ def load_models(args):
         ckpts.append(ckpt)
         model.load_state_dict(ckpt)
         test(model, 0)
-        extract_weights_all(args, model, i)
+        #extract_weights_all(args, model, i)
 
 
 if __name__ == '__main__':
     args = load_args()
-    #run_model_search(args)
+    run_model_search(args)
     load_models(args)
 
