@@ -6,3 +6,5 @@
 *.pyc
 data/
 bin/
+lib/
+include/
