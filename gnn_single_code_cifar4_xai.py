@@ -474,6 +474,7 @@ def train(args):
                 test_acc /= len(cifar_test.dataset) * 32
                 print ('Test Accuracy: {}, Test Loss: {}'.format(test_acc, test_loss))
                 # print ('FC Accuracy: {}, FC Loss: {}'.format(y_acc, y_loss))
+                """
                 if test_loss < best_test_loss or test_acc > best_test_acc:
                     print ('==> new best stats, saving')
                     if test_loss < best_test_loss:
@@ -488,6 +489,7 @@ def train(args):
                     utils.save_model(args, W3, optimizerW3, 'single_code1', test_acc)
                     utils.save_model(args, W4, optimizerW4, 'single_code1', test_acc)
                     utils.save_model(args, W5, optimizerW5, 'single_code1', test_acc)
+                """
                 #print ('FC Accuracy: {}, FC Loss: {}'.format(y_acc, y_loss))
 
 

@@ -1,19 +1,18 @@
 import os
 import sys
 import time
+import pprint
 import argparse
 import numpy as np
 from glob import glob
-from scipy.misc import imshow
-from comet_ml import Experiment
+
 import torch
 import torchvision
-from torchvision import datasets, transforms
 from torch import nn
 from torch import autograd
 from torch import optim
 from torch.nn import functional as F
-import pprint
+from torchvision import datasets, transforms
 
 import ops
 import plot
@@ -44,7 +43,8 @@ def load_args():
     parser.add_argument('--comet', default=False, type=bool)
     parser.add_argument('--gan', default=False, type=bool)
     parser.add_argument('--use_wae', default=True, type=bool)
-    parser.add_argument('--val_iters', default=10, type=bool)
+    parser.add_argument('--val_iters', default=10, type=int)
+    parser.add_argument('--save', default=False, type=bool)
 
     args = parser.parse_args()
     return args
@@ -301,13 +301,14 @@ def train(args):
     W3 = GeneratorW3(args).cuda()
     print (netE, W1, W2, W3)
 
-    optimizerE = optim.Adam(netE.parameters(), lr=3e-4, betas=(0.5, 0.9))#, weight_decay=1e-4)
-    optimizerW1 = optim.Adam(W1.parameters(), lr=3e-4, betas=(0.5, 0.9))#, weight_decay=1e-4)
-    optimizerW2 = optim.Adam(W2.parameters(), lr=3e-4, betas=(0.5, 0.9))#, weight_decay=1e-4)
-    optimizerW3 = optim.Adam(W3.parameters(), lr=3e-4, betas=(0.5, 0.9))#, weight_decay=1e-4)
+    optimizerE = optim.Adam(netE.parameters(), lr=1e-3, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimizerW1 = optim.Adam(W1.parameters(), lr=1e-3, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimizerW2 = optim.Adam(W2.parameters(), lr=1e-3, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimizerW3 = optim.Adam(W3.parameters(), lr=1e-3, betas=(0.5, 0.9), weight_decay=1e-4)
     
-    best_test_acc, best_test_loss = 0.95, 0.001
-    args.best_loss, args.best_acc = best_test_loss, best_test_acc
+    if args.save:
+        best_test_acc, best_test_loss = 0.95, 0.001
+        args.best_loss, args.best_acc = best_test_loss, best_test_acc
     if args.resume:
         netE, optimizerE = load_model(args, netE, optimizerE, 'single_code1', m1)
         W1, optimizerW1 = load_model(args, W1, optimizerW1, 'single_code1', m2)
@@ -317,10 +318,10 @@ def train(args):
         print ('==> resumeing models at ', stats)
 
     mnist_train, mnist_test = load_mnist()
-    base_gen = datagen.load(args)
-    w1_gen = utils.inf_train_gen(base_gen[0])
-    w2_gen = utils.inf_train_gen(base_gen[1])
-    w3_gen = utils.inf_train_gen(base_gen[2])
+    #base_gen = datagen.load(args)
+    #w1_gen = utils.inf_train_gen(base_gen[0])
+    #w2_gen = utils.inf_train_gen(base_gen[1])
+    #w3_gen = utils.inf_train_gen(base_gen[2])
 
     one = torch.FloatTensor([1]).cuda()
     mone = (one * -1).cuda()
@@ -332,7 +333,7 @@ def train(args):
             W1.zero_grad()
             W2.zero_grad()
             W3.zero_grad()
-            x, x2, x3 = sample_x(args, [w1_gen, w2_gen, w3_gen], 0)
+            #x, x2, x3 = sample_x(args, [w1_gen, w2_gen, w3_gen], 0)
             z = sample_z_like((args.batch_size, args.ze,))
             w1_code, w2_code, w3_code = netE(z)
             w1_out, w2_out = [], []
@@ -352,18 +353,21 @@ def train(args):
                 
             if batch_idx % 50 == 0:
                 acc = (correct / 1) 
-                norm_x = np.linalg.norm(x.data)
-                norm_x2 = np.linalg.norm(x2.data)
+                #norm_x = np.linalg.norm(x.data)
+                #norm_x2 = np.linalg.norm(x2.data)
                 norm_z1 = np.linalg.norm(z1.data)
                 norm_z2 = np.linalg.norm(z2.data)
                 print ('**************************************')
                 print ('Acc: {}, Loss: {}'.format(acc, loss))
-                print ('Filter norm: ', norm_z1, '-->', norm_x)
-                print ('Linear norm: ', norm_z2, '-->', norm_x2)
+                print ('Filter norm: ', norm_z1)#, '-->', norm_x)
+                print ('Linear norm: ', norm_z2)#, '-->', norm_x2)
                 print ('**************************************')
             if batch_idx % 100 == 0:
                 test_acc = 0.
                 test_loss = 0.
+                total_data = 0.
+                losses = []
+                acces = []
                 for i, (data, y) in enumerate(mnist_test):
                     z = sample_z_like((args.batch_size, args.ze,))
                     w1_code, w2_code, w3_code = netE(z)
@@ -380,23 +384,27 @@ def train(args):
                             z_test = [z1, z2, z3]
                         test_acc += correct
                         test_loss += (loss.cpu().data.numpy()[0])
+                        total_data += 1
+                        losses.append(loss.cpu().data.numpy()[0])
+                        acces.append(float(correct)/len(target))
                 #y_acc, y_loss = utils.test_samples(args, z_test, train=True)
-                test_loss /= len(mnist_test.dataset) * 32
-                test_acc /= len(mnist_test.dataset) * 32
+                test_loss /= len(mnist_test.dataset) * args.batch_size
+                test_acc /= len(mnist_test.dataset) * args.batch_size
                 print ('Test Accuracy: {}, Test Loss: {}'.format(test_acc, test_loss))
                 # print ('FC Accuracy: {}, FC Loss: {}'.format(y_acc, y_loss))
-                if test_loss < best_test_loss or test_acc > best_test_acc:
-                    print ('==> new best stats, saving')
-                    if test_loss < best_test_loss:
-                        best_test_loss = test_loss
-                        args.best_loss = test_loss
-                    if test_acc > best_test_acc:
-                        best_test_acc = test_acc
-                        args.best_acc = test_acc
-                    utils.save_model(args, netE, optimizerE, 'single_code1', test_acc)
-                    utils.save_model(args, W1, optimizerW1, 'single_code1', test_acc)
-                    utils.save_model(args, W2, optimizerW2, 'single_code1', test_acc)
-                    utils.save_model(args, W3, optimizerW3, 'single_code1', test_acc)
+                if args.save:
+                    if test_loss < best_test_loss or test_acc > best_test_acc:
+                        print ('==> new best stats, saving')
+                        if test_loss < best_test_loss:
+                            best_test_loss = test_loss
+                            args.best_loss = test_loss
+                        if test_acc > best_test_acc:
+                            best_test_acc = test_acc
+                            args.best_acc = test_acc
+                        utils.save_model(args, netE, optimizerE, 'single_code1', test_acc)
+                        utils.save_model(args, W1, optimizerW1, 'single_code1', test_acc)
+                        utils.save_model(args, W2, optimizerW2, 'single_code1', test_acc)
+                        utils.save_model(args, W3, optimizerW3, 'single_code1', test_acc)
 
                 #print ('FC Accuracy: {}, FC Loss: {}'.format(y_acc, y_loss))
 

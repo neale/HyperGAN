@@ -4,8 +4,6 @@ import time
 import argparse
 import numpy as np
 from glob import glob
-from scipy.misc import imshow
-from comet_ml import Experiment
 import torch
 import torchvision
 from torchvision import datasets, transforms
@@ -112,11 +110,11 @@ class GeneratorW2(nn.Module):
         for k, v in vars(args).items():
             setattr(self, k, v)
         self.name = 'GeneratorW2'
-        self.linear1 = nn.Linear(800, 1600)
-        self.linear2 = nn.Linear(1600, 6400)
-        self.linear3 = nn.Linear(6400, 25600)
-        self.bn1 = nn.BatchNorm2d(1600)
-        self.bn2 = nn.BatchNorm2d(6400)
+        self.linear1 = nn.Linear(800, 1200)
+        self.linear2 = nn.Linear(1200, 2400)
+        self.linear3 = nn.Linear(2400, 25600)
+        self.bn1 = nn.BatchNorm2d(1200)
+        self.bn2 = nn.BatchNorm2d(2400)
         self.bn3 = nn.BatchNorm2d(6400)
         self.relu = nn.LeakyReLU(inplace=True)
 
@@ -317,10 +315,10 @@ def train(args):
         print ('==> resuming models at ', stats)
 
     mnist_train, mnist_test = load_mnist()
-    base_gen = datagen.load(args)
-    w1_gen = utils.inf_train_gen(base_gen[0])
-    w2_gen = utils.inf_train_gen(base_gen[1])
-    w3_gen = utils.inf_train_gen(base_gen[2])
+    #base_gen = datagen.load(args)
+    #w1_gen = utils.inf_train_gen(base_gen[0])
+    #w2_gen = utils.inf_train_gen(base_gen[1])
+    #w3_gen = utils.inf_train_gen(base_gen[2])
 
     one = torch.FloatTensor([1]).cuda()
     mone = (one * -1).cuda()
@@ -332,7 +330,7 @@ def train(args):
             W1.zero_grad()
             W2.zero_grad()
             W3.zero_grad()
-            x, x2, x3 = sample_x(args, [w1_gen, w2_gen, w3_gen], 0)
+            #x, x2, x3 = sample_x(args, [w1_gen, w2_gen, w3_gen], 0)
             z = sample_z_like((args.batch_size, args.ze,))
             w1_code, w2_code, w3_code = netE(z)
             w1_out, w2_out = [], []
@@ -352,14 +350,14 @@ def train(args):
                 
             if batch_idx % 50 == 0:
                 acc = (correct / 1) 
-                norm_x = np.linalg.norm(x.data)
-                norm_x2 = np.linalg.norm(x2.data)
+                #norm_x = np.linalg.norm(x.data)
+                #norm_x2 = np.linalg.norm(x2.data)
                 norm_z1 = np.linalg.norm(z1.data)
                 norm_z2 = np.linalg.norm(z2.data)
                 print ('**************************************')
                 print ('Acc: {}, Loss: {}'.format(acc, loss))
-                print ('Filter norm: ', norm_z1, '-->', norm_x)
-                print ('Linear norm: ', norm_z2, '-->', norm_x2)
+                print ('Filter norm: ', norm_z1)#, '-->', norm_x)
+                print ('Linear norm: ', norm_z2)#, '-->', norm_x2)
                 print ('**************************************')
             if batch_idx % 100 == 0:
                 test_acc = 0.
@@ -369,8 +367,8 @@ def train(args):
                     w1_code, w2_code, w3_code = netE(z)
                     w1_out, w2_out = [], []
                     l1 = W1(w1_code)
-                    l2 = W2(w2_code)
-                    l3 = W3(w3_code.contiguous().view(args.batch_size, -1))
+                    l2 = W2(l1)
+                    l3 = W3(l2)
                     min_loss_batch = 10.
                     z_test = [l1[0], l2[0], l3[0]]
                     for (z1, z2, z3) in zip(l1, l2, l3):
@@ -387,6 +385,7 @@ def train(args):
                 # print ('FC Accuracy: {}, FC Loss: {}'.format(y_acc, y_loss))
                 if test_loss < best_test_loss or test_acc > best_test_acc:
                     print ('==> new best stats, saving')
+                    """
                     if test_loss < best_test_loss:
                         best_test_loss = test_loss
                         args.best_loss = test_loss
@@ -397,7 +396,7 @@ def train(args):
                     utils.save_model(args, W1, optimizerW1, 'single_code1', test_acc)
                     utils.save_model(args, W2, optimizerW2, 'single_code1', test_acc)
                     utils.save_model(args, W3, optimizerW3, 'single_code1', test_acc)
-
+                    """
                 #print ('FC Accuracy: {}, FC Loss: {}'.format(y_acc, y_loss))
 
 
