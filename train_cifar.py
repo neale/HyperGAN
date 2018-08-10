@@ -6,6 +6,7 @@ from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import matplotlib.pyplot as plt
 import presnet
@@ -57,7 +58,7 @@ def load_data():
     testset = torchvision.datasets.CIFAR10(root='./data', train=False,
             download=False,
             transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=512,
+    testloader = torch.utils.data.DataLoader(testset, batch_size=100,
             shuffle=False, num_workers=2)
 
     return trainloader, testloader
@@ -137,27 +138,70 @@ class CTiny(nn.Module):
 class CTiny(nn.Module):
     def __init__(self):
         super(CTiny, self).__init__()
-        self.conv1 = nn.Conv2d(3, 16, 3)
+        #self.conv1 = nn.Conv2d(3, 16, 3, stride=2)
+        self.conv1 = nn.Conv2d(3, 32, 3)
+        self.dropout1 = nn.Dropout2d(.1)
+        self.conv2 = nn.Conv2d(32, 64, 5, stride=2)
+        self.dropout2 = nn.Dropout2d(.2)
+        self.linear1 = nn.Linear(169*64, 128)
+        self.dropout3 = nn.Dropout2d(.3)
+        self.linear2 = nn.Linear(128, 10)
+        """
         self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, 3)
+        self.conv2 = nn.Conv2d(16, 32, 3, stride=2)
         self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 64, 3)
-        self.bn3 = nn.BatchNorm2d(64)
-        self.linear1 = nn.Linear(256, 64)
-        self.linear2 = nn.Linear(64, 10)
+        self.conv3 = nn.Conv2d(32, 32, 3)
+        self.bn3 = nn.BatchNorm2d(32)
+        self.linear1 = nn.Linear(128, 64)
+        self.linear2 = nn.Linear(128, 10)
         self.mpool = nn.MaxPool2d(2, 2)
         self.apool = nn.AvgPool2d(2, 2)
+        self.dropout = nn.Dropout2d(.2)
+        """
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.mpool(out)
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.mpool(out)
-        out = F.relu(self.bn3(self.conv3(out)))
-        out = self.apool(out)
+        # x = self.bn1(x)
+        # x = self.mpool(x)
+        # x = self.bn2(x)
+        # x = self.mpool(x)
+        x = self.conv1(x)
+        x = F.relu(x)
+        #x = self.dropout1(x)
+        x = self.conv2(x)
+        x = F.relu(x)
+        #x = self.dropout2(x)
+        x = x.view(x.size(0), -1) 
+        x = self.linear1(x)
+        x = F.relu(x)
+        #x = self.dropout3(x)
+        x = self.linear2(x)
+        # x = self.conv3(x)
+        # x = self.bn3(x)
+        # x = F.relu(x)
+        # x = self.apool(x)
+        # x = self.dropout(x)
+        #out = F.relu(self.linear1(out))
+        return x
+
+
+class LeNet(nn.Module):
+    def __init__(self):
+        super(LeNet, self).__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.linear1   = nn.Linear(16*5*5, 120)
+        self.linear2   = nn.Linear(120, 84)
+        self.linear3   = nn.Linear(84, 10)
+
+    def forward(self, x):
+        out = F.relu(self.conv1(x))
+        out = F.max_pool2d(out, 2)
+        out = F.relu(self.conv2(out))
+        out = F.max_pool2d(out, 2)
         out = out.view(out.size(0), -1)
         out = F.relu(self.linear1(out))
-        out = self.linear2(out)
+        out = F.relu(self.linear2(out))
+        out = self.linear3(out)
         return out
 
 
@@ -172,11 +216,14 @@ def train(model, grad=False, e=2):
         for param in child.parameters():
             param.requires_grad = False
     """
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-            lr=0.01, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50000, gamma=0.1)
-
-    for epoch in range(100):
+    #optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
+    #        lr=0.01, weight_decay=1e-4)
+    #optimizer = optim.Adam(model.parameters(), lr=0.1)
+    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
+    model = torch.nn.DataParallel(model)
+    cudnn.benchmark = True
+    for epoch in range(300):
         scheduler.step()
         model.train()
         total = 0
@@ -188,10 +235,11 @@ def train(model, grad=False, e=2):
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
-            train_loss += loss.data[0]
-            _, predicted = torch.max(output.data, 1)
+
+            train_loss += loss.item()
+            _, predicted = output.max(1)
             total += target.size(0)
-            correct += predicted.eq(target.data).cpu().sum()
+            correct += predicted.eq(target).sum().item()
             acc = 100. * correct / total
             utils.progress_bar(i, len(train_loader),
                     'Loss: %.3f | Acc: %.3f%% (%d/%d)'
@@ -203,24 +251,24 @@ def train(model, grad=False, e=2):
 def test(model, epoch=None, grad=False):
     model.eval()
     _, test_loader = load_data()
-    test_loss = 0
-    correct = 0
+    test_loss = 0.
+    correct = 0.
     criterion = nn.CrossEntropyLoss()
     for i, (data, target) in enumerate(test_loader):
         data, target = Variable(data).cuda(), Variable(target).cuda()
         output = model(data)
         if grad is False:
-            test_loss += criterion(output, target).data[0]
+            test_loss += criterion(output, target).item()
         else:
             test_loss += criterion(output, target)
         pred = output.data.max(1, keepdim=True)[1]
         output = None
         correct += pred.eq(target.data.view_as(pred)).long().cpu().sum()
     test_loss /= len(test_loader.dataset)
-    acc = correct / len(test_loader.dataset)
+    acc = correct.item() / len(test_loader.dataset)
     if epoch:
-        print ('Average loss: {}, Accuracy: {}/{} ({}%)'.format(
-            test_loss, correct, len(test_loader.dataset),
+        print ('Epoch: {}, Average loss: {}, Accuracy: {}/{} ({}%)'.format(
+            epoch, test_loss, correct, len(test_loader.dataset),
             100. * correct / len(test_loader.dataset)))
 
     return acc, test_loss
@@ -249,7 +297,7 @@ def extract_weights(model, id):
 def extract_weights_all(args, model, id):
     state = model.state_dict()
     conv_names = [x for x in list(state.keys()) if 'conv' in x]
-    fc_names = [x for x in list(state.keys()) if 'fc' in x]
+    fc_names = [x for x in list(state.keys()) if 'linear' in x]
     cnames = [x for x in conv_names if 'weight' in x]
     fnames = [x for x in fc_names if 'weight' in x]
     names = cnames + fnames
@@ -284,20 +332,23 @@ def get_network(args):
         model = WideNet().cuda()
     elif args.net == 'ctiny':
         model = CTiny().cuda()
+    elif args.net == 'lenet':
+        model = LeNet().cuda()
     else:
         raise NotImplementedError
     return model
 
 
 def run_model_search(args):
-    for i in range(0, 100):
+    for i in range(0, 2):
         print ("\nRunning CIFAR Model {}...".format(i))
         model = get_network(args)
-        model = w_init(model, 'normal')
+        # model = w_init(model, 'normal')
+        print (model)
         acc = train(model)
-        extract_weights_all(model, i)
+        extract_weights_all(args, model, i)
         torch.save(model.state_dict(),
-                mdir+'cifar/{}/cifar_model_{}_{}'.format(args.net, i, acc))
+                mdir+'cifar/{}/cifar_model_{}'.format(args.net, i))
 
 
 """ Load a batch of networks to extract weights """
@@ -313,7 +364,8 @@ def load_models(args):
         ckpt = torch.load(path)
         ckpts.append(ckpt)
         model.load_state_dict(ckpt)
-        test(model, 0)
+        acc, loss = test(model, 0)
+        print ('Acc: {}, Loss: {}'.format(acc, loss))
         #extract_weights_all(args, model, i)
 
 

@@ -119,7 +119,8 @@ def test_samples(args, params, train=False):
     # take random model
     paths = natsort.natsorted(glob(model_dir+'{}/{}/*.pt'.format(
         args.dataset, args.model)))
-    id = np.random.randint(len(paths)-1)
+    #id = np.random.randint(len(paths)-1)
+    id = 0
     if args.dataset == 'cifar':
         model_fn = getattr(cifar, args.stat['name'])
     else:

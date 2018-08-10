@@ -63,5 +63,20 @@ def nets():
             'shapes': [(64, 3, 3, 3), (128, 64, 3, 3), (128, 8192), (10, 128)],
             'base_shape': 3
             }
+    networks['ctiny'] = {
+            'name': 'CTiny',
+            'n_layers': 4,
+            'layer_names': ['conv1', 'conv2', 'conv3', 'linear2'],
+            'shapes': [(16, 3, 3, 3), (32, 16, 3, 3), (32, 32, 3, 3), (10, 128)],
+            'base_shape': 3
+            }
+    networks['lenet'] = { 
+            'name': 'LeNet',
+            'n_layers': 5, 
+            'layer_names': ['conv1', 'conv2', 'linear1', 'linear2', 'linear3'],
+            'shapes': [(6, 3, 5, 5), (16, 6, 5, 5), (120, 400), (84, 120), (10, 84)],
+            'base_shape': 5
+            }
+
 
     return networks
