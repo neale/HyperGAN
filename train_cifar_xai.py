@@ -128,7 +128,7 @@ class MedNet(nn.Module):
         out = F.max_pool2d(out, 2)
         out = F.relu(self.conv3(out))
         out = F.max_pool2d(out, 2)
-        print (out.shape)
+        #print (out.shape)
         out = out.view(out.size(0), -1)
         out = F.relu(self.fc1(out))
         out = self.fc2(out)
@@ -197,7 +197,7 @@ def train(model, grad=False, e=2):
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
     model = torch.nn.DataParallel(model)
     cudnn.benchmark = True
-    for epoch in range(300):
+    for epoch in range(50):
         scheduler.step()
         model.train()
         total = 0
@@ -271,7 +271,7 @@ def extract_weights(model, id):
 def extract_weights_all(args, model, id):
     state = model.state_dict()
     conv_names = [x for x in list(state.keys()) if 'conv' in x]
-    fc_names = [x for x in list(state.keys()) if 'linear' in x]
+    fc_names = [x for x in list(state.keys()) if 'fc' in x]
     cnames = [x for x in conv_names if 'weight' in x]
     fnames = [x for x in fc_names if 'weight' in x]
     names = cnames + fnames
@@ -316,7 +316,7 @@ def get_network(args):
 
 
 def run_model_search(args):
-    for i in range(0, 2):
+    for i in range(30, 40):
         print ("\nRunning CIFAR Model {}...".format(i))
         model = get_network(args)
         # model = w_init(model, 'normal')
@@ -331,7 +331,9 @@ def run_model_search(args):
 def load_models(args):
 
     model = get_network(args)
-    paths = glob(mdir+'cifar/{}/*.pt'.format(args.net))
+    paths = glob(mdir+'cifar/{}/*'.format(args.net))
+    print (paths)
+    print (mdir+'cifar/{}/'.format(args.net))
     natpaths = natsort.natsorted(paths)
     ckpts = []
     print (len(paths))
@@ -342,11 +344,11 @@ def load_models(args):
         model.load_state_dict(ckpt)
         acc, loss = test(model, 0)
         print ('Acc: {}, Loss: {}'.format(acc, loss))
-        #extract_weights_all(args, model, i)
+        extract_weights_all(args, model, i)
 
 
 if __name__ == '__main__':
     args = load_args()
-    load_models(args)
     #run_model_search(args)
+    load_models(args)
 

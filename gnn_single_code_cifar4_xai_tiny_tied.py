@@ -57,7 +57,7 @@ class Encoder(nn.Module):
         self.name = 'Encoder'
         self.linear1 = nn.Linear(self.ze, 512)
         self.linear2 = nn.Linear(512, 512)
-        self.linear3 = nn.Linear(512, 1280)
+        self.linear3 = nn.Linear(512, 512)
         self.bn1 = nn.BatchNorm1d(512)
         self.bn2 = nn.BatchNorm1d(512)
         self.relu = nn.LeakyReLU(inplace=True)
@@ -69,15 +69,16 @@ class Encoder(nn.Module):
         x = self.relu(self.bn2(self.linear2(x)))
         x = self.linear3(x)
         # x = self.relu(self.linear3(x))
-        x = x.view(-1, 5, 256)
+        #x = x.view(-1, 5, 256)
         # print (x.shape)
-        w1 = x[:, 0]
-        w2 = x[:, 1]
-        w3 = x[:, 2]
-        w4 = x[:, 3]
-        w5 = x[:, 4]
+        #w1 = x[:, 0]
+        #w2 = x[:, 1]
+        #w3 = x[:, 2]
+        #w4 = x[:, 3]
+        #w5 = x[:, 4]
         #print ('E out: ', x.shape)
-        return w1, w2, w3, w4, w5
+        #return w1, w2, w3, w4, w5
+        return x.view(-1, 512)
 
 
 """ Convolutional (3 x 16 x 3 x 3) """
@@ -87,7 +88,7 @@ class GeneratorW1(nn.Module):
         for k, v in vars(args).items():
             setattr(self, k, v)
         self.name = 'GeneratorW1'
-        self.linear1 = nn.Linear(256, 256)
+        self.linear1 = nn.Linear(512, 256)
         self.linear2 = nn.Linear(256, 256)
         self.linear3 = nn.Linear(256, 432)
         self.bn1 = nn.BatchNorm1d(256)
@@ -112,7 +113,7 @@ class GeneratorW2(nn.Module):
         for k, v in vars(args).items():
             setattr(self, k, v)
         self.name = 'GeneratorW2'
-        self.linear1 = nn.Linear(256, 512)
+        self.linear1 = nn.Linear(512, 512)
         self.linear2 = nn.Linear(512, 1024)
         self.linear3 = nn.Linear(1024, 2048)
         self.linear4 = nn.Linear(2048, 4608)
@@ -139,7 +140,7 @@ class GeneratorW3(nn.Module):
         for k, v in vars(args).items():
             setattr(self, k, v)
         self.name = 'GeneratorW3'
-        self.linear1 = nn.Linear(256, 1024)
+        self.linear1 = nn.Linear(512, 1024)
         self.linear2 = nn.Linear(1024, 2048)
         self.linear3 = nn.Linear(2048, 4096)
         self.linear4 = nn.Linear(4096, 9216)
@@ -166,7 +167,7 @@ class GeneratorW4(nn.Module):
         for k, v in vars(args).items():
             setattr(self, k, v)
         self.name = 'GeneratorW4'
-        self.linear1 = nn.Linear(256, 1024)
+        self.linear1 = nn.Linear(512, 1024)
         self.linear2 = nn.Linear(1024, 2048)
         self.linear3 = nn.Linear(2048, 4096)
         self.linear4 = nn.Linear(4096, 8192)
@@ -193,7 +194,7 @@ class GeneratorW5(nn.Module):
         for k, v in vars(args).items():
             setattr(self, k, v)
         self.name = 'GeneratorW5'
-        self.linear1 = nn.Linear(256, 512)
+        self.linear1 = nn.Linear(512, 512)
         self.linear2 = nn.Linear(512, 512)
         self.linear3 = nn.Linear(512, 640)
         self.bn1 = nn.BatchNorm1d(512)
@@ -366,11 +367,11 @@ def train(args):
     print (netE, W1, W2, W3, W4, W5)
 
     optimizerE = optim.Adam(netE.parameters(), lr=3e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimizerW1 = optim.Adam(W1.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimizerW2 = optim.Adam(W2.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimizerW3 = optim.Adam(W3.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimizerW4 = optim.Adam(W4.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimizerW5 = optim.Adam(W5.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimizerW1 = optim.Adam(W1.parameters(), lr=3e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimizerW2 = optim.Adam(W2.parameters(), lr=3e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimizerW3 = optim.Adam(W3.parameters(), lr=3e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimizerW4 = optim.Adam(W4.parameters(), lr=3e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimizerW5 = optim.Adam(W5.parameters(), lr=3e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     
     best_test_acc, best_test_loss = 0., np.inf
     args.best_loss, args.best_acc = best_test_loss, best_test_acc
@@ -419,16 +420,16 @@ def train(args):
                             loss/len(cifar_test.dataset))
             """
             z = sample_z_like((args.batch_size, args.ze,))
-            w1_code, w2_code, w3_code, w4_code, w5_code = netE(z)
-            l1 = W1(w1_code)
-            l2 = W2(w2_code)
-            l3 = W3(w3_code)
-            l4 = W4(w4_code)
-            l5 = W5(w5_code)#.contiguous().view(args.batch_size, -1))
+            code = netE(z)
+            l1 = W1(code)
+            l2 = W2(code)
+            l3 = W3(code)
+            l4 = W4(code)
+            l5 = W5(code)#.contiguous().view(args.batch_size, -1))
             
             for (z1, z2, z3, z4, z5) in zip(l1, l2, l3, l4, l5):
                 correct, loss = train_clf(args, [z1, z2, z3, z4, z5], data, target, val=True)
-                scaled_loss = (100*loss) #+ z1_loss + z2_loss + z3_loss
+                scaled_loss = (1000*loss) #+ z1_loss + z2_loss + z3_loss
                 scaled_loss.backward(retain_graph=True)
             optimizerE.step()
             optimizerW1.step()
@@ -446,7 +447,7 @@ def train(args):
                 norm_z4 = np.linalg.norm(z4.data)
                 norm_z5 = np.linalg.norm(z5.data)
                 print ('**************************************')
-                print ('100 test 5e-4 optim')
+                print ('100 tied test')
                 print ('Acc: {}, Loss: {}'.format(acc, loss))
                 print ('Filter norm: ', norm_z1)
                 print ('Filter norm: ', norm_z2)
@@ -461,12 +462,12 @@ def train(args):
                 test_loss = 0.
                 for i, (data, y) in enumerate(cifar_test):
                     z = sample_z_like((args.batch_size, args.ze,))
-                    w1_code, w2_code, w3_code, w4_code, w5_code = netE(z)
-                    l1 = W1(w1_code)
-                    l2 = W2(w2_code)
-                    l3 = W3(w3_code)
-                    l4 = W4(w4_code)
-                    l5 = W5(w5_code)
+                    code = netE(z)
+                    l1 = W1(code)
+                    l2 = W2(code)
+                    l3 = W3(code)
+                    l4 = W4(code)
+                    l5 = W5(code)
                     min_loss_batch = 10.
                     z_test = [l1[0], l2[0], l3[0], l4[0], l5[0]]
                     for (z1, z2, z3, z4, z5) in zip(l1, l2, l3, l4, l5):

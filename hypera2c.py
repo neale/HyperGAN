@@ -11,20 +11,21 @@ from torch import nn
 from torch import autograd
 from torch import optim
 from torch.nn import functional as F
+import torch.distributions.multivariate_normal as N
 import pprint
 
 import ops
 import plot
-import utils
+import utils_xai as utils
 import netdef
-import datagen
+import datagen_xai as datagen
 import matplotlib.pyplot as plt
 
 
 def load_args():
 
     parser = argparse.ArgumentParser(description='param-wgan')
-    parser.add_argument('-z', '--dim', default=64, type=int, help='latent space width')
+    parser.add_argument('-z', '--z', default=256, type=int, help='latent space width')
     parser.add_argument('-ze', '--ze', default=512, type=int, help='encoder dimension')
     parser.add_argument('-g', '--gp', default=10, type=int, help='gradient penalty')
     parser.add_argument('-b', '--batch_size', default=32, type=int)
@@ -37,13 +38,15 @@ def load_args():
     parser.add_argument('--nfgc', default=64, type=int)
     parser.add_argument('--nfgl', default=64, type=int)
     parser.add_argument('--nfd', default=128, type=int)
-    parser.add_argument('--beta', default=1000, type=int)
+    parser.add_argument('--beta', default=1., type=float)
     parser.add_argument('--resume', default=False, type=bool)
     parser.add_argument('--comet', default=False, type=bool)
     parser.add_argument('--gan', default=False, type=bool)
     parser.add_argument('--use_wae', default=False, type=bool)
     parser.add_argument('--use_x', default=False, type=bool, help='sample from real layers')
-    parser.add_argument('--val_iters', default=10, type=bool)
+    parser.add_argument('--val_iters', default=10, type=int)
+    parser.add_argument('--load_e', default=False, type=bool)
+
 
     args = parser.parse_args()
     return args
@@ -54,30 +57,29 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.name = 'Encoder'
+        self.name = 'Encoder_lc'
         self.linear1 = nn.Linear(self.ze, 512)
-        self.linear2 = nn.Linear(512, 512)
-        self.linear3 = nn.Linear(512, 1280)
+        self.linear2 = nn.Linear(512, 1024)
+        self.linear3 = nn.Linear(1024, 1280)
         self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(512)
+        self.bn2 = nn.BatchNorm1d(1024)
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
         #print ('E in: ', x.shape)
-        x = x.view(self.batch_size, -1) #flatten filter size
+        x = x.view(-1, self.ze) #flatten filter size
         x = self.relu(self.bn1(self.linear1(x)))
         x = self.relu(self.bn2(self.linear2(x)))
         x = self.linear3(x)
         # x = self.relu(self.linear3(x))
-        x = x.view(-1, 5, 256)
+        x = x.view(-1, 4, 256)
         # print (x.shape)
         w1 = x[:, 0]
         w2 = x[:, 1]
         w3 = x[:, 2]
         w4 = x[:, 3]
-        w5 = x[:, 4]
         #print ('E out: ', x.shape)
-        return w1, w2, w3, w4, w5
+        return w1, w2, w3, w4
 
 
 """ Convolutional (3 x 16 x 3 x 3) """
@@ -216,21 +218,21 @@ class DiscriminatorZ(nn.Module):
         for k, v in vars(args).items():
             setattr(self, k, v)
         
-        self.name = 'Discriminator_wae'
-        self.linear0 = nn.Linear(self.lcd*self.lcd*10, self.lcd*self.lcd)
-        self.linear1 = nn.Linear(self.lcd*self.lcd, 256)
-        #self.linear1 = nn.Linear(self.dim, 256)
-        self.linear2 = nn.Linear(256, 1)
-        self.relu = nn.LeakyReLU(.2, inplace=True)
+        self.name = 'Discriminator_z'
+        self.linear1 = nn.Linear(self.z, 1024)
+        self.linear2 = nn.Linear(1024, 1024)
+        self.linear3 = nn.Linear(1024, 1024)
+        self.linear4 = nn.Linear(1024, 1)
+        self.relu = nn.ReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         # print ('Dz in: ', x.shape)
         x = x.view(self.batch_size, -1)
-        if x.shape[-1] > self.lcd*self.lcd:
-            x = self.relu(self.linear0(x))
         x = self.relu(self.linear1(x))
-        x = self.linear2(x)
+        x = self.relu(self.linear2(x))
+        x = self.relu(self.linear3(x))
+        x = self.linear4(x)
         x = self.sigmoid(x)
         # print ('Dz out: ', x.shape)
         return x
@@ -255,30 +257,13 @@ def sample_z(args, grad=True):
     return z
 
 
-def sample_z_like(shape, grad=True):
-    z = torch.randn(*shape, requires_grad=grad).cuda()
-    return z
+def sample_z_like(shape, scale=1., grad=True):
+    mean = torch.zeros(shape[1])
+    cov = torch.eye(shape[1])
+    D = N.MultivariateNormal(mean, cov)
+    z = D.sample((shape[0],)).cuda()
+    return scale * z
  
-
-def train_ae(args, netG, netE, x):
-    netG.zero_grad()
-    netE.zero_grad()
-    x_encoding = netE(x)
-    x_fake = ops.gen_layer(args, netG, x_encoding)
-    # fake = netG(encoding)
-    x_fake = x_fake.view(*args.shapes[args.id])
-    ae_loss = F.mse_loss(x_fake, x)
-    return ae_loss, x_fake
-
-
-def train_wadv(args, netDz, netE, x, z):
-    netDz.zero_grad()
-    z_fake = netE(x).view(args.batch_size, -1)
-    Dz_real = netDz(z)
-    Dz_fake = netDz(z_fake)
-    Dz_loss = -(torch.mean(Dz_real) - torch.mean(Dz_fake))
-    Dz_loss.backward()
-
 
 def load_cifar():
     transform_train = transforms.Compose([
@@ -332,25 +317,38 @@ def train_clf(args, Z, data, target, val=False):
     return (correct, loss)
 
 
-def cov(x, y):
-    mean_x = torch.mean(x, dim=0, keepdim=True)
-    mean_y = torch.mean(y, dim=0, keepdim=True)
-    cov_x = torch.matmul((x-mean_x).transpose(0, 1), x-mean_x)
-    cov_x /= 999
-    cov_y = torch.matmul((y-mean_y).transpose(0, 1), y-mean_y)
-    cov_y /= 999
-    cov_loss = F.mse_loss(cov_y, cov_x)
-    return cov_loss
+def batch_zero_grad(nets):
+    for module in nets:
+        module.zero_grad()
 
 
-def free_params(module: nn.Module):
-    for p in module.parameters():
-        p.requires_grad = True
+def batch_update_optim(optimizers):
+    for optim in optimizers:
+        optim.step()
+
+def free_params(nets):
+    for module in nets:
+        for p in module.parameters():
+            p.requires_grad = True
 
 
-def frozen_params(module: nn.Module):
-    for p in module.parameters():
-        p.requires_grad = False
+def frozen_params(nets):
+    for module in nets:
+        for p in module.parameters():
+            p.requires_grad = False
+
+
+def pretrain_loss(encoded, noise):
+    mean_z = torch.mean(noise, dim=0, keepdim=True)
+    mean_e = torch.mean(encoded, dim=0, keepdim=True)
+    mean_loss = F.mse_loss(mean_z, mean_e)
+
+    cov_z = torch.matmul((noise-mean_z).transpose(0, 1), noise-mean_z)
+    cov_z /= 999
+    cov_e = torch.matmul((encoded-mean_e).transpose(0, 1), encoded-mean_e)
+    cov_e /= 999
+    cov_loss = F.mse_loss(cov_z, cov_e)
+    return mean_loss, cov_loss
 
 
 def train(args):
@@ -363,26 +361,29 @@ def train(args):
     W3 = GeneratorW3(args).cuda()
     W4 = GeneratorW4(args).cuda()
     W5 = GeneratorW5(args).cuda()
-    print (netE, W1, W2, W3, W4, W5)
+    netD = DiscriminatorZ(args).cuda()
+    print (netE, W1, W2, W3, W4, W5, netD)
 
-    optimizerE = optim.Adam(netE.parameters(), lr=3e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimizerW1 = optim.Adam(W1.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimizerW2 = optim.Adam(W2.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimizerW3 = optim.Adam(W3.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimizerW4 = optim.Adam(W4.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimizerW5 = optim.Adam(W5.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimE = optim.Adam(netE.parameters(), lr=0.005, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimW1 = optim.Adam(W1.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimW2 = optim.Adam(W2.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimW3 = optim.Adam(W3.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimW4 = optim.Adam(W4.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimW5 = optim.Adam(W5.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimD = optim.Adam(netD.parameters(), lr=5e-5, betas=(0.5, 0.9), weight_decay=1e-4)
     
     best_test_acc, best_test_loss = 0., np.inf
     args.best_loss, args.best_acc = best_test_loss, best_test_acc
     if args.resume:
-        netE, optimizerE = load_model(args, netE, optimizerE, 'single_code1', m0)
-        W1, optimizerW1 = load_model(args, W1, optimizerW1, 'single_code1', m1)
-        W2, optimizerW2 = load_model(args, W2, optimizerW2, 'single_code1', m2)
-        W3, optimizerW3, stats = load_model(args, W3, optimizerW3, 'single_code1', m3)
-        W4, optimizerW3, stats = load_model(args, W4, optimizerW4, 'single_code1', m4)
-        W4, optimizerW3, stats = load_model(args, W5, optimizerW5, 'single_code1', m5)
+        netE, optimE, stats = load_model(args, netE, optimE, 'single_code1')
+        W1, optimW1, stats = load_model(args, W1, optimrW1, 'single_code1')
+        W2, optimW2, stats = load_model(args, W2, optimW2, 'single_code1')
+        W3, optimW3, stats = load_model(args, W3, optimW3, 'single_code1')
+        W4, optimW3, stats = load_model(args, W4, optimW4, 'single_code1')
+        W4, optimW3, stats = load_model(args, W5, optimW5, 'single_code1')
+        netD, optimD, stats = load_model(args, netD, optimD, 'single_code1')
         best_test_acc, best_test_loss = stats
-        print ('==> resumeing models at ', stats)
+        print ('==> resuming models at ', stats)
 
     cifar_train, cifar_test = load_cifar()
     if args.use_x:
@@ -398,46 +399,77 @@ def train(args):
     if args.use_x:
         X = sample_x(args, [w1_gen, w2_gen, w3_gen, w4_gen, w5_gen], 0)
         X = list(map(lambda x: (x+1e-10).float(), X))
+
+    print ("==> pretraining encoder")
+    j = 0
+    final = 100.
+    e_batch_size = 1000
+    if args.load_e:
+        netE, optimE, _ = utils.load_model(args, netE, optimE, 'Encoder_lc_inf.pt')
+        print ('==> loading pretrained encoder')
+    else:
+        for j in range(2000):
+            #x = sample_x(args, [w1_gen, w2_gen, w3_gen, w4_gen, w5_gen], 0)
+            x = sample_z_like((e_batch_size, args.ze))
+            z = sample_z_like((e_batch_size, args.z))
+            codes = netE(x)
+            for i, code in enumerate(codes):
+                code = code.view(e_batch_size, args.z)
+                mean_loss, cov_loss = pretrain_loss(code, z)
+                loss = mean_loss + cov_loss
+                loss.backward(retain_graph=True)
+            optimE.step()
+            netE.zero_grad()
+            print ('Pretrain Enc iter: {}, Mean Loss: {}, Cov Loss: {}'.format(
+                j, mean_loss.item(), cov_loss.item()))
+            final = loss.item()
+            if loss.item() < 0.1:
+                print ('Finished Pretraining Encoder')
+                break
+        utils.save_model(args, netE, optimE)
+
+    print ('==> Begin Training')
     for _ in range(1000):
         for batch_idx, (data, target) in enumerate(cifar_train):
 
-            netE.zero_grad()
-            W1.zero_grad()
-            W2.zero_grad()
-            W3.zero_grad()
-            W4.zero_grad()
-            W5.zero_grad()
-            """
-            if batch_idx % 50 == 0:
-                if args.use_x:
-                    acc, loss = 0., 0.
-                    for i, (x, y) in enumerate(cifar_test):
-                        correct, l = train_clf(args, X, x, y, val=True)
-                        acc += correct.item()
-                        loss += l.item()
-                    print ("Functional Net: ", acc/len(cifar_test.dataset),
-                            loss/len(cifar_test.dataset))
-            """
+            batch_zero_grad([netE, W1, W2, W3, W4, W5, netD])
+            #netE.zero_grad(); W1.zero_grad(); W2.zero_grad()
+            #W3.zero_grad(); W4.zero_grad(); W5.zero_grad()
             z = sample_z_like((args.batch_size, args.ze,))
-            w1_code, w2_code, w3_code, w4_code, w5_code = netE(z)
-            l1 = W1(w1_code)
-            l2 = W2(w2_code)
-            l3 = W3(w3_code)
-            l4 = W4(w4_code)
-            l5 = W5(w5_code)#.contiguous().view(args.batch_size, -1))
+            codes = netE(z)
+            l1 = W1(codes[0])
+            l2 = W2(codes[1])
+            l3 = W3(codes[2])
+            l4 = W4(codes[3])
+            l5 = W5(codes[4])
             
+            # Z Adversary 
+            free_params([netD])
+            frozen_params([netE, W1, W2, W3, W4, W5])
+            for code in codes:
+                noise = sample_z_like((args.batch_size, args.z))
+                d_real = netD(noise)
+                d_fake = netD(code)
+                d_real_loss = -1 * torch.log((1-d_real).mean())
+                d_fake_loss = -1 * torch.log(d_fake.mean())
+                d_real_loss.backward(retain_graph=True)
+                d_fake_loss.backward(retain_graph=True)
+                d_loss = d_real_loss + d_fake_loss
+            optimD.step()
+
+            # Generator
+            frozen_params([netD])
+            free_params([netE, W1, W2, W3, W4, W5])
             for (z1, z2, z3, z4, z5) in zip(l1, l2, l3, l4, l5):
                 correct, loss = train_clf(args, [z1, z2, z3, z4, z5], data, target, val=True)
-                scaled_loss = (100*loss) #+ z1_loss + z2_loss + z3_loss
+                scaled_loss = (args.beta*loss) #+ z1_loss + z2_loss + z3_loss
                 scaled_loss.backward(retain_graph=True)
-            optimizerE.step()
-            optimizerW1.step()
-            optimizerW2.step()
-            optimizerW3.step()
-            optimizerW4.step()
-            optimizerW5.step()
+               
+            optimE.step(); optimW1.step(); optimW2.step()
+            optimW3.step(); optimW4.step(); optimW5.step()
             loss = loss.item()
-                
+            
+            """ Update Statistics """
             if batch_idx % 50 == 0:
                 acc = (correct / 1) 
                 norm_z1 = np.linalg.norm(z1.data)
@@ -446,11 +478,11 @@ def train(args):
                 norm_z4 = np.linalg.norm(z4.data)
                 norm_z5 = np.linalg.norm(z5.data)
                 print ('**************************************')
-                print ('100 test 5e-4 optim')
-                print ('Acc: {}, Loss: {}'.format(acc, loss))
+                print ('Enc, Dz, Lscale: {} test'.format(args.beta))
+                print ('Acc: {}, G Loss: {}, D Loss: {}'.format(acc, loss, d_loss))
                 print ('Filter norm: ', norm_z1)
                 print ('Filter norm: ', norm_z2)
-                print ('Linear norm: ', norm_z3)
+                print ('Filter norm: ', norm_z3)
                 print ('Linear norm: ', norm_z4)
                 print ('Linear norm: ', norm_z5)
                 print ('best test loss: {}'.format(args.best_loss))

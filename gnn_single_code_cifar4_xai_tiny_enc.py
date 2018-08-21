@@ -11,20 +11,21 @@ from torch import nn
 from torch import autograd
 from torch import optim
 from torch.nn import functional as F
+import torch.distributions.multivariate_normal as N
 import pprint
 
 import ops
 import plot
-import utils
+import utils_xai as utils
 import netdef
-import datagen
+import datagen_xai as datagen
 import matplotlib.pyplot as plt
 
 
 def load_args():
 
     parser = argparse.ArgumentParser(description='param-wgan')
-    parser.add_argument('-z', '--dim', default=64, type=int, help='latent space width')
+    parser.add_argument('-z', '--z', default=256, type=int, help='latent space width')
     parser.add_argument('-ze', '--ze', default=512, type=int, help='encoder dimension')
     parser.add_argument('-g', '--gp', default=10, type=int, help='gradient penalty')
     parser.add_argument('-b', '--batch_size', default=32, type=int)
@@ -56,15 +57,15 @@ class Encoder(nn.Module):
             setattr(self, k, v)
         self.name = 'Encoder'
         self.linear1 = nn.Linear(self.ze, 512)
-        self.linear2 = nn.Linear(512, 512)
-        self.linear3 = nn.Linear(512, 1280)
+        self.linear2 = nn.Linear(512, 1024)
+        self.linear3 = nn.Linear(1024, 1280)
         self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(512)
+        self.bn2 = nn.BatchNorm1d(1024)
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
         #print ('E in: ', x.shape)
-        x = x.view(self.batch_size, -1) #flatten filter size
+        x = x.view(-1, self.ze) #flatten filter size
         x = self.relu(self.bn1(self.linear1(x)))
         x = self.relu(self.bn2(self.linear2(x)))
         x = self.linear3(x)
@@ -255,9 +256,12 @@ def sample_z(args, grad=True):
     return z
 
 
-def sample_z_like(shape, grad=True):
-    z = torch.randn(*shape, requires_grad=grad).cuda()
-    return z
+def sample_z_like(shape, scale=1., grad=True):
+    mean = torch.zeros(shape[1])
+    cov = torch.eye(shape[1])
+    D = N.MultivariateNormal(mean, cov)
+    z = D.sample((shape[0],)).cuda()
+    return scale * z
  
 
 def train_ae(args, netG, netE, x):
@@ -332,17 +336,6 @@ def train_clf(args, Z, data, target, val=False):
     return (correct, loss)
 
 
-def cov(x, y):
-    mean_x = torch.mean(x, dim=0, keepdim=True)
-    mean_y = torch.mean(y, dim=0, keepdim=True)
-    cov_x = torch.matmul((x-mean_x).transpose(0, 1), x-mean_x)
-    cov_x /= 999
-    cov_y = torch.matmul((y-mean_y).transpose(0, 1), y-mean_y)
-    cov_y /= 999
-    cov_loss = F.mse_loss(cov_y, cov_x)
-    return cov_loss
-
-
 def free_params(module: nn.Module):
     for p in module.parameters():
         p.requires_grad = True
@@ -351,6 +344,19 @@ def free_params(module: nn.Module):
 def frozen_params(module: nn.Module):
     for p in module.parameters():
         p.requires_grad = False
+
+
+def pretrain_loss(encoded, noise):
+    mean_z = torch.mean(noise, dim=0, keepdim=True)
+    mean_e = torch.mean(encoded, dim=0, keepdim=True)
+    mean_loss = F.mse_loss(mean_z, mean_e)
+
+    cov_z = torch.matmul((noise-mean_z).transpose(0, 1), noise-mean_z)
+    cov_z /= 999
+    cov_e = torch.matmul((encoded-mean_e).transpose(0, 1), encoded-mean_e)
+    cov_e /= 999
+    cov_loss = F.mse_loss(cov_z, cov_e)
+    return mean_loss, cov_loss
 
 
 def train(args):
@@ -365,7 +371,7 @@ def train(args):
     W5 = GeneratorW5(args).cuda()
     print (netE, W1, W2, W3, W4, W5)
 
-    optimizerE = optim.Adam(netE.parameters(), lr=3e-4, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimizerE = optim.Adam(netE.parameters(), lr=0.005, betas=(0.5, 0.9), weight_decay=1e-4)
     optimizerW1 = optim.Adam(W1.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimizerW2 = optim.Adam(W2.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimizerW3 = optim.Adam(W3.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
@@ -398,6 +404,32 @@ def train(args):
     if args.use_x:
         X = sample_x(args, [w1_gen, w2_gen, w3_gen, w4_gen, w5_gen], 0)
         X = list(map(lambda x: (x+1e-10).float(), X))
+
+    print ("==> pretraining encoder")
+    j = 0
+    final = 100.
+    e_batch_size = 1000
+    for j in range(2000):
+        #x = sample_x(args, [w1_gen, w2_gen, w3_gen, w4_gen, w5_gen], 0)
+        x = sample_z_like((e_batch_size, args.ze))
+        z = sample_z_like((e_batch_size, args.z))
+        codes = netE(x)
+        for i, code in enumerate(codes):
+            code = code.view(e_batch_size, args.z)
+            mean_loss, cov_loss = pretrain_loss(code, z)
+            loss = mean_loss + cov_loss
+            loss.backward(retain_graph=True)
+        optimizerE.step()
+        netE.zero_grad()
+        print ('Pretrain Enc iter: {}, Mean Loss: {}, Cov Loss: {}'.format(
+            j, mean_loss.item(), cov_loss.item()))
+        final = loss.item()
+        if loss.item() < 0.1:
+            print ('Finished Pretraining Encoder')
+            break
+
+    utils.save_model(args, netE, optimizerE)
+
     for _ in range(1000):
         for batch_idx, (data, target) in enumerate(cifar_train):
 
@@ -446,7 +478,7 @@ def train(args):
                 norm_z4 = np.linalg.norm(z4.data)
                 norm_z5 = np.linalg.norm(z5.data)
                 print ('**************************************')
-                print ('100 test 5e-4 optim')
+                print ('enc 100 test')
                 print ('Acc: {}, Loss: {}'.format(acc, loss))
                 print ('Filter norm: ', norm_z1)
                 print ('Filter norm: ', norm_z2)

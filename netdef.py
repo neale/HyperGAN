@@ -80,8 +80,8 @@ def nets():
     networks['mednet'] = { 
             'name': 'MedNet',
             'n_layers': 5, 
-            'layer_names': ['conv1', 'conv2', 'conv3', 'linear1', 'linear2'],
-            'shapes': [(16, 3, 3, 3), (32, 16, 3, 3), (32, 32, 3, 3), (84, 128), (10, 64)],
+            'layer_names': ['conv1', 'conv2', 'conv3', 'fc1', 'fc2'],
+            'shapes': [(16, 3, 3, 3), (32, 16, 3, 3), (32, 32, 3, 3), (64, 128), (10, 64)],
             'base_shape': 3
             }
     return networks
