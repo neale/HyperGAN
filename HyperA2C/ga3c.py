@@ -58,6 +58,18 @@ class HyperNetwork(object):
                 models.GeneratorW5(args).cuda(),
                 models.GeneratorW6(args).cuda()
         ]
+        
+    def set_test_mode(self):
+        self.encoder.eval()
+        self.adversary.eval()
+        for gen in self.generators:
+            gen.eval()
+
+    def set_train_mode(self):
+        self.encoder.train()
+        self.adversary.train()
+        for gen in self.generators:
+            gen.train()
 
         # sync weights with another hypernet
     def sync(self, H2):
@@ -70,7 +82,7 @@ class HyperNetwork(object):
         path = 'models/HyperGAN/atari/{}/agent.pt'.format(self.env)
         Hypernet_dict = {
             'E': utils.get_net_dict(self.encoder, optim['optimE']),
-            'D': utils.get_net_dict(self.encoder, optim['optimD']),
+            'D': utils.get_net_dict(self.adversary, optim['optimD']),
             'W1': utils.get_net_dict(self.generators[0], optim['optimG'][0]),
             'W2': utils.get_net_dict(self.generators[1], optim['optimG'][1]),
             'W3': utils.get_net_dict(self.generators[2], optim['optimG'][2]),
@@ -89,21 +101,20 @@ class HyperNetwork(object):
 
         optimizers = [optim['optimG'][0], optim['optimG'][1], optim['optimG'][2],
                 optim['optimG'][3], optim['optimG'][4], optim['optimG'][5]]
-        try:
-            path = 'models/HyperGAN/atari/{}/agent.pt'.format(self.env)
-            HN = torch.load(path)
-            objectE = utils.open_net_dict(HN['E'], self.encoder, optim['optimE'])
-            self.encoder, optim['optimE'] = objectE
-            objectD = utils.open_net_dict(HN['D'], self.encoder, optim['optimD'])
-            self.adversary, optim['optimD'] = objectD
+        path = 'models/HyperGAN/atari/{}/agent.pt'.format(self.env)
+        HN = torch.load(path)
+        objectE = utils.open_net_dict(HN['E'], self.encoder, optim['optimE'])
+        self.encoder, optim['optimE'] = objectE
+        objectD = utils.open_net_dict(HN['D'], self.adversary, optim['optimD'])
+        self.adversary, optim['optimD'] = objectD
 
-            for (l, net, op) in zip(layer_names, modules, optimizers):
-                net, op = utils.open_net_dict(HN[l], net, op)
-            num_frames = HN['num_frames']
-            mean_reward = HN['mean_reward']
-        except: 
-            warnings.warn('Could not load agent from path', Warning)
-            return None
+        for (l, net, op) in zip(layer_names, modules, optimizers):
+            old_state = net.state_dict()
+            net, op = utils.open_net_dict(HN[l], net, op)
+            assert net.state_dict != old_state
+
+        num_frames = HN['num_frames']
+        mean_reward = HN['mean_reward']
         return optim, num_frames, mean_reward
 
 
@@ -136,37 +147,27 @@ def cost_func(args, values, logps, actions, rewards):
     return loss
 
 
-def load_shared_optim(args, HyperNet):
-    gen_optim = []
-    for p in HyperNet.generators:
-        gen_optim.append(SharedAdam(p.parameters(), lr=5e-4))
-
-    Optim = {
-        'optimE': SharedAdam(HyperNet.encoder.parameters(), lr=5e-4),
-        'optimE': SharedAdam(HyperNet.adversary.parameters(), lr=5e-5),
-        'optimG': gen_optim,
-    }
-   
-    return Optim
-
-
 def load_optim(args, HyperNet):
     gen_optim = []
     w = 1e-4
+    if args.test: 
+        lr_e, lr_d, lr_g = 0, 0, 0
+    else:
+        lr_e, lr_d, lr_g = 5e-3, 5e-4, 1e-5
     for p in HyperNet.generators:
-        gen_optim.append(Adam(p.parameters(), lr=5e-4, betas=(.9,.999), weight_decay=w))
+        gen_optim.append(Adam(p.parameters(), lr=lr_g, betas=(.9,.999), weight_decay=w))
 
     Optim = { 
-        'optimE': Adam(HyperNet.encoder.parameters(), lr=5e-4, betas=(.9,.999),
-            weight_decay=w),
-        'optimD': Adam(HyperNet.adversary.parameters(), lr=1e-5, betas=(.9,.999),
+        'optimE': Adam(HyperNet.encoder.parameters(), lr=lr_e, betas=(.5,.999),
+            weight_decay=w, eps=1e-8),
+        'optimD': Adam(HyperNet.adversary.parameters(), lr=lr_d, betas=(.9,.999),
             weight_decay=w),
         'optimG': gen_optim,
     }
     return Optim
 
 
-def pretrain_e(args, HM, Optim):
+def pretrain_e(args, HyperNet, Optim):
     HyperNet.encoder, Optim = H.pretrain_encoder(args, HyperNet.encoder, Optim)
     return HyperNet, Optim
 
@@ -176,8 +177,9 @@ def train(args, envs, model, optim):
         'run_loss', 'episodes', 'frames']}
     if args.resume:
         res = model.load_state(optim)
+        print ('loaded agent')
         if res is not None:
-            optim, num_frames, mean_reward
+            optim, num_frames, mean_reward = res
             info['frames'] += num_frames * 1e6
     else:
         if args.pretrain_e:
@@ -196,6 +198,11 @@ def train(args, envs, model, optim):
     values, logps, actions, rewards = [], [], [], []
     print ('=> starting training')
     i = 0
+    if args.test:
+        hypernet.set_test_mode()
+        envs.set_monitor()
+        envs.envs[0].reset()
+
     while info['frames'][0] <= 8e7 or args.test: 
         i += 1
         episode_length += 1
@@ -209,7 +216,7 @@ def train(args, envs, model, optim):
         action = torch.exp(logp).multinomial(num_samples=1).data
         state, reward, done, _ = envs.step(action)
         if args.render:
-            env.render()
+            envs.envs[0].render()
 
         state = torch.tensor(state).view(state_shape).cuda()
         reward = np.clip(reward, -1, 1)
@@ -217,7 +224,7 @@ def train(args, envs, model, optim):
         done = done or episode_length >= 1e4 # don't playing one ep for too long
         info['frames'] += args.batch_size
         num_frames = int(info['frames'].item())
-        if num_frames % 2e7 == 0: # save every 2M frames
+        if num_frames % 1e6 == 0: # save every 2M frames
             printlog(args, '\n\t{:.0f}M frames: saved model\n'.format(num_frames/1e6))
             model.save_state(optim, num_frames/1e6, info['run_epr'].item())
         done_count = np.sum(done)

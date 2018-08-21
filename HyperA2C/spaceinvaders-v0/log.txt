@@ -1,21 +1,5 @@
 
-frames 0.0M, mean epr 0.00, run loss 0.00
-frames 0.0M, mean epr 5.74, run loss 1479.88
-frames 0.0M, mean epr 6.17, run loss 1456.93
-frames 0.0M, mean epr 6.57, run loss 1470.35
-frames 0.1M, mean epr 7.63, run loss 1704.86
-frames 0.1M, mean epr 8.11, run loss 1741.44
-frames 0.1M, mean epr 8.20, run loss 1691.99
-frames 0.1M, mean epr 8.37, run loss 1638.62
-frames 0.1M, mean epr 8.79, run loss 1794.66
-frames 0.1M, mean epr 9.06, run loss 1943.74
-frames 0.2M, mean epr 9.11, run loss 2001.98
-frames 0.2M, mean epr 9.10, run loss 2034.32
-frames 0.2M, mean epr 9.40, run loss 2092.76
-frames 0.2M, mean epr 9.19, run loss 1922.45
-frames 0.2M, mean epr 9.12, run loss 1837.39
-frames 0.2M, mean epr 9.12, run loss 1817.77
-frames 0.3M, mean epr 9.26, run loss 1847.53
-frames 0.3M, mean epr 9.31, run loss 1835.59
-frames 0.3M, mean epr 9.26, run loss 1843.06
-frames 0.3M, mean epr 9.24, run loss 1910.92
+frames 1.4M, mean epr 13.38, run loss 742.61
+frames 1.4M, mean epr 13.31, run loss 760.49
+frames 1.5M, mean epr 13.31, run loss 763.31
+frames 1.5M, mean epr 13.11, run loss 727.95

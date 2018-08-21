@@ -23,7 +23,6 @@ def load_args():
     parser.add_argument('--use_wae', default=False, type=bool)
     parser.add_argument('--use_x', default=False, type=bool, help='sample from real layers')
     parser.add_argument('--val_iters', default=10, type=int)
-    parser.add_argument('--load_e', default=False, type=bool)
     parser.add_argument('--pretrain_e', default=False, type=bool)
     parser.add_argument('--n_actions', default=6, type=int)
     # A3C args

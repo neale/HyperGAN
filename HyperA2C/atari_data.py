@@ -24,6 +24,7 @@ class MultiEnvironment():
     def __init__(self, name, batch_size, fskip = 0):
         self.batch_size = batch_size
         self.envs = [] #map(lambda idx: gym.make(name), range(batch_size))
+        self.name = name
         for i in range(batch_size):
             env = gym.make(name)
             env.seed(i)
@@ -43,6 +44,11 @@ class MultiEnvironment():
 
     def only_one_env(self):
         self.envs = [self.envs[0]]
+    
+    def set_monitor(self):
+        # only one env here
+        from gym import wrappers
+        self.envs[0] = wrappers.Monitor(self.envs[0], 'tmp/{}/'.format(self.name), force=True)
 
     def step(self, actions):
         assert len(actions) == len(self.envs)

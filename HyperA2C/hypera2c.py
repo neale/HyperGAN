@@ -79,8 +79,8 @@ def pretrain_encoder(args, E, Optim):
 
     j = 0
     final = 100.
-    e_batch_size = 1000
-    for j in range(2000):
+    e_batch_size = 2000
+    for j in range(3000):
         x = sample_z_like((e_batch_size, args.ze))
         z = sample_z_like((e_batch_size, args.z))
         codes = E(x)

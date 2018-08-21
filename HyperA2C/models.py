@@ -67,7 +67,7 @@ class GeneratorW1(nn.Module):
         self.name = 'GeneratorW1'
         self.linear1 = nn.Linear(self.z, 256)
         self.linear2 = nn.Linear(256, 256)
-        self.linear3 = nn.Linear(256, 432)
+        self.linear3 = nn.Linear(256, 288)
         self.bn1 = nn.BatchNorm1d(256)
         self.bn2 = nn.BatchNorm1d(256)
         self.relu = nn.LeakyReLU(inplace=True)
@@ -76,7 +76,7 @@ class GeneratorW1(nn.Module):
         #print ('W1 in: ', x.shape)
         x = self.relu(self.bn1(self.linear1(x)))
         x = self.relu(self.bn2(self.linear2(x)))
-        x = self.relu(self.linear3(x))
+        x = self.linear3(x)
         #x = self.linear4(x)
         x = x.view(-1, 32, 1, 3, 3)
         #print ('W1 out: ', x.shape)
