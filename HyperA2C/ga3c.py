@@ -79,7 +79,7 @@ class HyperNetwork(object):
             g1.load_state_dict(g2.state_dict())
 
     def save_state(self, optim, num_frames, mean_reward):
-        path = 'models/HyperGAN/atari/{}/agent.pt'.format(self.env)
+        path = 'models/HyperGAN/atari/{}/agent_{}.pt'.format(self.env, self.exp)
         Hypernet_dict = {
             'E': utils.get_net_dict(self.encoder, optim['optimE']),
             'D': utils.get_net_dict(self.adversary, optim['optimD']),
@@ -93,6 +93,7 @@ class HyperNetwork(object):
             'mean_reward': mean_reward
         }
         torch.save(Hypernet_dict, path)
+        print ('saved agent to {}'.format(path))
 
     def load_state(self, optim):
         layer_names = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6']
@@ -101,7 +102,8 @@ class HyperNetwork(object):
 
         optimizers = [optim['optimG'][0], optim['optimG'][1], optim['optimG'][2],
                 optim['optimG'][3], optim['optimG'][4], optim['optimG'][5]]
-        path = 'models/HyperGAN/atari/{}/agent.pt'.format(self.env)
+        path = 'models/HyperGAN/atari/{}/agent_{}.pt'.format(self.env, self.exp)
+        print ('loading agent from {}'.format(path))
         HN = torch.load(path)
         objectE = utils.open_net_dict(HN['E'], self.encoder, optim['optimE'])
         self.encoder, optim['optimE'] = objectE
@@ -177,10 +179,11 @@ def train(args, envs, model, optim):
         'run_loss', 'episodes', 'frames']}
     if args.resume:
         res = model.load_state(optim)
-        print ('loaded agent')
         if res is not None:
             optim, num_frames, mean_reward = res
+            print ('Loaded Agent')
             info['frames'] += num_frames * 1e6
+            print ('reward {} in {} frames'.format(mean_reward, num_frames*1e6))
     else:
         if args.pretrain_e:
             pretrain_e(args, model, optim)
@@ -224,7 +227,7 @@ def train(args, envs, model, optim):
         done = done or episode_length >= 1e4 # don't playing one ep for too long
         info['frames'] += args.batch_size
         num_frames = int(info['frames'].item())
-        if num_frames % 1e6 == 0: # save every 2M frames
+        if num_frames % 1e4 == 0: # save every 2M frames
             printlog(args, '\n\t{:.0f}M frames: saved model\n'.format(num_frames/1e6))
             model.save_state(optim, num_frames/1e6, info['run_epr'].item())
         done_count = np.sum(done)

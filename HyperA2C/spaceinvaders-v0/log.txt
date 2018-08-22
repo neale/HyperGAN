@@ -1,5 +1,4 @@
 
-frames 1.4M, mean epr 13.38, run loss 742.61
-frames 1.4M, mean epr 13.31, run loss 760.49
-frames 1.5M, mean epr 13.31, run loss 763.31
-frames 1.5M, mean epr 13.11, run loss 727.95
+
+	0M frames: saved model
+
