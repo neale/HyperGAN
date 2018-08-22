@@ -40,6 +40,7 @@ def load_args():
     parser.add_argument('--frame_skip', default=-1, type=int, help='')
     parser.add_argument('--gpu', default=0, type=int, help='')
     parser.add_argument('--exp', default='0', type=str, help='')
+    parser.add_argument('--scratch', default=True, type=bool, help='')
     args = parser.parse_args()
     return args
 

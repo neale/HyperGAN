@@ -80,6 +80,8 @@ class HyperNetwork(object):
 
     def save_state(self, optim, num_frames, mean_reward):
         path = 'models/HyperGAN/atari/{}/agent_{}.pt'.format(self.env, self.exp)
+        if self.scratch:
+            path = '/scratch/eecs-share/ratzlafn/' + path
         Hypernet_dict = {
             'E': utils.get_net_dict(self.encoder, optim['optimE']),
             'D': utils.get_net_dict(self.adversary, optim['optimD']),
@@ -103,6 +105,8 @@ class HyperNetwork(object):
         optimizers = [optim['optimG'][0], optim['optimG'][1], optim['optimG'][2],
                 optim['optimG'][3], optim['optimG'][4], optim['optimG'][5]]
         path = 'models/HyperGAN/atari/{}/agent_{}.pt'.format(self.env, self.exp)
+        if self.scratch:
+            path = '/scratch/eecs-share/ratzlafn/' + path
         print ('loading agent from {}'.format(path))
         HN = torch.load(path)
         objectE = utils.open_net_dict(HN['E'], self.encoder, optim['optimE'])
@@ -227,7 +231,7 @@ def train(args, envs, model, optim):
         done = done or episode_length >= 1e4 # don't playing one ep for too long
         info['frames'] += args.batch_size
         num_frames = int(info['frames'].item())
-        if num_frames % 1e4 == 0: # save every 2M frames
+        if num_frames % 1e7 == 0: # save every 2M frames
             printlog(args, '\n\t{:.0f}M frames: saved model\n'.format(num_frames/1e6))
             model.save_state(optim, num_frames/1e6, info['run_epr'].item())
         done_count = np.sum(done)
