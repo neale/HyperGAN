@@ -17,12 +17,6 @@ from scipy.signal import lfilter
 os.environ['OMP_NUM_THREADS'] = '1'
 
 
-def discount(rewards, gamma):
-    rewards = rewards[:, ::-1]
-    result = lfilter([1], [1, -gamma], rewards)
-    return result[:, ::-1]
-
-
 def printlog(args, s, end='\n', mode='a'):
     print(s, end=end) 
     f=open(args.save_dir+'log.txt',mode)
@@ -133,6 +127,12 @@ def FuncPolicy(args, W, state):
     return  F.linear(x, W[4]), F.linear(x, W[5])
 
 
+def discount(rewards, gamma):
+    rewards = rewards[:, ::-1]
+    result = lfilter([1], [1, -gamma], rewards)
+    return result[:, ::-1]
+
+
 def cost_func(args, values, logps, actions, rewards):
     np_values = values.cpu().data.numpy()
     delta_t = np.asarray(rewards) + args.gamma * np_values[:,1:] - np_values[:,:-1]
@@ -159,7 +159,7 @@ def load_optim(args, HyperNet):
     if args.test: 
         lr_e, lr_d, lr_g = 0, 0, 0
     else:
-        lr_e, lr_d, lr_g = 5e-3, 5e-4, 1e-5
+        lr_e, lr_d, lr_g = 5e-2, 5e-3, 1e-4
     for p in HyperNet.generators:
         gen_optim.append(Adam(p.parameters(), lr=lr_g, betas=(.9,.999), weight_decay=w))
 
