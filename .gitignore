@@ -1,4 +1,6 @@
 *.pt
+*.json
+*.mp4
 *.pkl
 *.npy
 *.jpg
