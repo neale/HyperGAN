@@ -25,11 +25,12 @@ import torch.nn.init as init
 
 
 param_dir = './params/sampled/mnist/test1/'
-model_dir = 'models/'
+model_dir = 'models/HyperGAN/'
 
 
 def save_model(args, net, optim):
-    path = 'HyperGAN/{}/{}/{}_{}.pt'.format(args.dataset, args.model, net.name, args.best_loss)
+    path = '{}/{}/{}_{}.pt'.format(
+            args.dataset, args.model, net.name, args.exp)
     path = model_dir + path
     torch.save({
         'state_dict': net.state_dict(),
@@ -39,9 +40,9 @@ def save_model(args, net, optim):
         }, path)
 
 
-def load_model(args, net, optim, m_name):
-    path = 'HyperGAN/{}/{}/{}'.format(
-            args.dataset, args.model, m_name)
+def load_model(args, net, optim):
+    path = '{}/{}/{}_{}.pt'.format(
+            args.dataset, args.model, net.name, args.exp)
     path = model_dir + path
     ckpt = torch.load(path)
     net.load_state_dict(ckpt['state_dict'])

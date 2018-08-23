@@ -46,6 +46,7 @@ def load_args():
     parser.add_argument('--use_x', default=False, type=bool, help='sample from real layers')
     parser.add_argument('--val_iters', default=10, type=int)
     parser.add_argument('--load_e', default=False, type=bool)
+    parser.add_argument('--pretrain_e', default=False, type=bool)
     parser.add_argument('--scratch', default=False, type=bool)
 
 
@@ -94,7 +95,7 @@ class GeneratorW1(nn.Module):
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
-        #print ('W1 in: ', x.shape)
+        # print ('W1 in: ', x.shape)
         x = self.relu(self.bn1(self.linear1(x)))
         x = self.linear2(x)
         #x = self.linear4(x)
@@ -380,7 +381,7 @@ def train(args):
     if args.load_e:
         netE, optimE, _ = utils.load_model(args, netE, optimE, 'Encoder_cifar.pt')
         print ('==> loading pretrained encoder')
-    else:
+    if args.pretrain_e:
         for j in range(200):
             #x = sample_x(args, [w1_gen, w2_gen, w3_gen, w4_gen, w5_gen], 0)
             x = sample_z_like((e_batch_size, args.ze))

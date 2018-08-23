@@ -40,6 +40,7 @@ def load_args():
     parser.add_argument('--nfd', default=128, type=int)
     parser.add_argument('--beta', default=1000, type=int)
     parser.add_argument('--resume', default=False, type=bool)
+    parser.add_argument('--scratch', default=False, type=bool)
     parser.add_argument('--comet', default=False, type=bool)
     parser.add_argument('--gan', default=False, type=bool)
     parser.add_argument('--use_wae', default=True, type=bool)
@@ -59,13 +60,13 @@ class Encoder(nn.Module):
         self.linear1 = nn.Linear(self.ze, 300)
         self.linear2 = nn.Linear(300, 300)
         self.linear3 = nn.Linear(300, 384)
-        self.bn1 = nn.BatchNorm2d(300)
-        self.bn2 = nn.BatchNorm2d(300)
+        self.bn1 = nn.BatchNorm1d(300)
+        self.bn2 = nn.BatchNorm1d(300)
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
         #print ('E in: ', x.shape)
-        x = x.view(self.batch_size, -1) #flatten filter size
+        x = x.view(-1, self.ze) #flatten filter size
         x = self.relu(self.bn1(self.linear1(x)))
         x = self.relu(self.bn2(self.linear2(x)))
         x = self.linear3(x)
@@ -90,9 +91,9 @@ class GeneratorW1(nn.Module):
         self.linear2 = nn.Linear(256, 256)
         self.linear3 = nn.Linear(256, 512)
         self.linear4 = nn.Linear(512, 800)
-        self.bn1 = nn.BatchNorm2d(256)
-        self.bn2 = nn.BatchNorm2d(256)
-        self.bn3 = nn.BatchNorm2d(512)
+        self.bn1 = nn.BatchNorm1d(256)
+        self.bn2 = nn.BatchNorm1d(256)
+        self.bn3 = nn.BatchNorm1d(512)
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
@@ -116,9 +117,9 @@ class GeneratorW2(nn.Module):
         self.linear2 = nn.Linear(256, 1600)
         self.linear3 = nn.Linear(1600, 6400)
         self.linear4 = nn.Linear(6400, 25600)
-        self.bn1 = nn.BatchNorm2d(256)
-        self.bn2 = nn.BatchNorm2d(1600)
-        self.bn3 = nn.BatchNorm2d(6400)
+        self.bn1 = nn.BatchNorm1d(256)
+        self.bn2 = nn.BatchNorm1d(1600)
+        self.bn3 = nn.BatchNorm1d(6400)
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
@@ -141,8 +142,8 @@ class GeneratorW3(nn.Module):
         self.linear1 = nn.Linear(128, 256)
         self.linear2 = nn.Linear(256, 256)
         self.linear3 = nn.Linear(256, 512*10)
-        self.bn1 = nn.BatchNorm2d(256)
-        self.bn2 = nn.BatchNorm2d(256)
+        self.bn1 = nn.BatchNorm1d(256)
+        self.bn2 = nn.BatchNorm1d(256)
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
@@ -182,30 +183,28 @@ class DiscriminatorZ(nn.Module):
         return x
 
 
-def sample_x(args, gen, id):
+def sample_x(args, gen, id, grad=True):
     if type(gen) is list:
         res = []
         for i, g in enumerate(gen):
             data = next(g)
-            x = autograd.Variable(torch.Tensor(data)).cuda()
+            x = torch.tensor(data, requires_grad=grad).cuda()
             res.append(x.view(*args.shapes[i]))
     else:
         data = next(gen)
-        x = torch.Tensor(data).cuda()
+        x = torch.tensor(data).cuda()
         x = x.view(*args.shapes[id])
         res = autograd.Variable(x)
     return res
 
 
-def sample_z(args):
-    z = torch.randn(args.batch_size, args.dim).cuda()
-    z = autograd.Variable(z)
+def sample_z(args, grad=True):
+    z = torch.randn(args.batch_size, args.dim, requires_grad=grad).cuda()
     return z
 
 
-def sample_z_like(shape):
-    z = torch.randn(*shape).cuda()
-    z = autograd.Variable(z)
+def sample_z_like(shape, grad=True):
+    z = torch.randn(*shape, requires_grad=grad).cuda()
     return z
  
 
@@ -232,15 +231,18 @@ def train_wadv(args, netDz, netE, x, z):
 def load_mnist():
     torch.cuda.manual_seed(1)
     kwargs = {'num_workers': 1, 'pin_memory': True}
+    path = 'data'
+    if args.scratch:
+        path = '/scratch/eecs-share/ratzlafn/'
     train_loader = torch.utils.data.DataLoader(
-            datasets.MNIST('./data', train=True, download=True,
+            datasets.MNIST(path, train=True, download=True,
                 transform=transforms.Compose([
                     transforms.ToTensor(),
                     transforms.Normalize((0.1307,), (0.3081,))
                     ])),
                 batch_size=64, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
-            datasets.MNIST('./data', train=False, transform=transforms.Compose([
+            datasets.MNIST(path, train=False, transform=transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize((0.1307,), (0.3081,))
                 ])),
@@ -309,11 +311,6 @@ def train(args):
     if args.save:
         best_test_acc, best_test_loss = 0.95, 0.001
         args.best_loss, args.best_acc = best_test_loss, best_test_acc
-    if args.resume:
-        netE, optimizerE = load_model(args, netE, optimizerE, 'single_code1', m1)
-        W1, optimizerW1 = load_model(args, W1, optimizerW1, 'single_code1', m2)
-        W2, optimizerW2 = load_model(args, W2, optimizerW2, 'single_code1', m3)
-        W3, optimizerW3, stats = load_model(args, W3, optimizerW3, 'single_code1', m4)
         best_test_acc, best_test_loss = stats
         print ('==> resumeing models at ', stats)
 
@@ -349,14 +346,14 @@ def train(args):
             optimizerW1.step()
             optimizerW2.step()
             optimizerW3.step()
-            loss = loss.cpu().data.numpy()[0]
+            loss = loss.item()
                 
             if batch_idx % 50 == 0:
                 acc = (correct / 1) 
                 #norm_x = np.linalg.norm(x.data)
                 #norm_x2 = np.linalg.norm(x2.data)
-                norm_z1 = np.linalg.norm(z1.data)
-                norm_z2 = np.linalg.norm(z2.data)
+                norm_z1 = np.linalg.norm(z1.detach())
+                norm_z2 = np.linalg.norm(z2.detach())
                 print ('**************************************')
                 print ('Acc: {}, Loss: {}'.format(acc, loss))
                 print ('Filter norm: ', norm_z1)#, '-->', norm_x)
@@ -379,17 +376,17 @@ def train(args):
                     z_test = [l1[0], l2[0], l3[0]]
                     for (z1, z2, z3) in zip(l1, l2, l3):
                         correct, loss = train_clf(args, [z1, z2, z3], data, y, val=True)
-                        if loss.data[0] < min_loss_batch:
-                            min_loss_batch = loss.cpu().data.numpy()[0]
+                        if loss.item() < min_loss_batch:
+                            min_loss_batch = loss.item()
                             z_test = [z1, z2, z3]
-                        test_acc += correct
-                        test_loss += (loss.cpu().data.numpy()[0])
+                        test_acc += float(correct)
+                        test_loss += (loss.item())
                         total_data += 1
-                        losses.append(loss.cpu().data.numpy()[0])
+                        losses.append(loss.item())
                         acces.append(float(correct)/len(target))
                 #y_acc, y_loss = utils.test_samples(args, z_test, train=True)
-                test_loss /= len(mnist_test.dataset) * args.batch_size
-                test_acc /= len(mnist_test.dataset) * args.batch_size
+                test_loss /= len(mnist_test.dataset)* args.batch_size
+                test_acc /= len(mnist_test.dataset) * float(args.batch_size)
                 print ('Test Accuracy: {}, Test Loss: {}'.format(test_acc, test_loss))
                 # print ('FC Accuracy: {}, FC Loss: {}'.format(y_acc, y_loss))
                 if args.save:
@@ -401,10 +398,6 @@ def train(args):
                         if test_acc > best_test_acc:
                             best_test_acc = test_acc
                             args.best_acc = test_acc
-                        utils.save_model(args, netE, optimizerE, 'single_code1', test_acc)
-                        utils.save_model(args, W1, optimizerW1, 'single_code1', test_acc)
-                        utils.save_model(args, W2, optimizerW2, 'single_code1', test_acc)
-                        utils.save_model(args, W3, optimizerW3, 'single_code1', test_acc)
 
                 #print ('FC Accuracy: {}, FC Loss: {}'.format(y_acc, y_loss))
 
