@@ -1,10 +1,12 @@
+import os
+import sys
+import time
 import torch
 import natsort
 import datagen
 import scipy.misc
 import numpy as np
 import matplotlib.pyplot as plt
-import torch.autograd as autograd
 import itertools
 import cv2
 import numpy as np
@@ -13,42 +15,36 @@ from glob import glob
 from scipy.misc import imsave
 import train_mnist as mnist
 import train_cifar as cifar
-from presnet import PreActResNet18
-from resnet import ResNet18
-import os
-import sys
-import time
-import math
 
 import torch.nn as nn
 import torch.nn.init as init
 
 
 param_dir = './params/sampled/mnist/test1/'
-model_dir = '/data0/models/HyperGAN/models/'
+model_dir = 'models/HyperGAN/'
 
 
-def save_model(args, net, optim, ex_name, suff=None):
-    path = 'HyperGAN/{}/{}/{}/{}_{}'.format(args.dataset, ex_name, args.model, net.name, suff)
+def save_model(args, net, optim):
+    path = '{}/{}/{}_{}.pt'.format(
+            args.dataset, args.model, net.name, args.exp)
     path = model_dir + path
-    state_dict = net.state_dict()
     torch.save({
-        'state_dict': state_dict,
+        'state_dict': net.state_dict(),
         'optimizer': optim.state_dict(),
         'best_acc': args.best_acc,
         'best_loss': args.best_loss
         }, path)
 
 
-def load_model(args, net, optim, ex_name, m_name):
-    path = 'HyperGAN/{}/{}/{}/{}/{}'.format(
-            args.dataset, ex_name, args.model, net.name, m_name)
+def load_model(args, net, optim):
+    path = '{}/{}/{}_{}.pt'.format(
+            args.dataset, args.model, net.name, args.exp)
     path = model_dir + path
     ckpt = torch.load(path)
     net.load_state_dict(ckpt['state_dict'])
     optim.load_state_dict(ckpt['optimizer'])
-    acc = ckpt.load_state_dict(ckpt['best_acc'])
-    loss = ckpt.load_state_dict(ckpt['best_loss'])
+    acc = ckpt['best_acc']
+    loss = ckpt['best_loss']
     return net, optim, (acc, loss)
 
 

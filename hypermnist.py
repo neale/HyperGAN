@@ -59,7 +59,7 @@ class Encoder(nn.Module):
         self.linear3 = nn.Linear(300, self.z*3)
         self.bn1 = nn.BatchNorm1d(300)
         self.bn2 = nn.BatchNorm1d(300)
-        self.relu = nn.LeakyReLU(inplace=True)
+        self.relu = nn.ELU(inplace=True)
 
     def forward(self, x):
         #print ('E in: ', x.shape)
@@ -88,7 +88,7 @@ class GeneratorW1(nn.Module):
         self.bn1 = nn.BatchNorm1d(256)
         self.bn2 = nn.BatchNorm1d(256)
         self.bn3 = nn.BatchNorm1d(512)
-        self.relu = nn.LeakyReLU(inplace=True)
+        self.relu = nn.ELU(inplace=True)
 
     def forward(self, x):
         # print ('W1 in: ', x.shape)
@@ -114,7 +114,7 @@ class GeneratorW2(nn.Module):
         self.bn1 = nn.BatchNorm1d(256)
         self.bn2 = nn.BatchNorm1d(1600)
         self.bn3 = nn.BatchNorm1d(6400)
-        self.relu = nn.LeakyReLU(inplace=True)
+        self.relu = nn.ELU(inplace=True)
 
     def forward(self, x):
         #print ('W2 in: ', x.shape)
@@ -138,7 +138,7 @@ class GeneratorW3(nn.Module):
         self.linear3 = nn.Linear(256, 512*10)
         self.bn1 = nn.BatchNorm1d(256)
         self.bn2 = nn.BatchNorm1d(256)
-        self.relu = nn.LeakyReLU(inplace=True)
+        self.relu = nn.ELU(inplace=True)
 
     def forward(self, x):
         #print ('W3 in : ', x.shape)

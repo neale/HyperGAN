@@ -326,22 +326,29 @@ def train(args):
             if args.use_d:
                 free_params([netD])
                 frozen_params([netE, W1, W2, W3])
-                for code in codes:
+                for _ in range(5):
+                    d_losses = []
                     noise = sample_d(z_dist, args.batch_size)
-                    d_real = netD(noise)
-                    d_fake = netD(code)
-                    d_real_loss = -1 * torch.log((1-d_real).mean())
-                    d_fake_loss = -1 * torch.log(d_fake.mean())
-                    d_real_loss.backward(retain_graph=True)
-                    d_fake_loss.backward(retain_graph=True)
-                    d_loss = d_real_loss + d_fake_loss
-                optimD.step()
-
+                    codes_d = netE(z)
+                    for code in codes_d:
+                        d_real = netD(noise)
+                        d_fake = netD(code)
+                        d_losses.append(-(torch.mean(d_real) - torch.mean(d_fake)))
+                    d_loss = torch.stack(d_losses).mean(0)
+                    d_loss.backward()
+                    optimD.step()
+                    for p in netD.parameters():
+                        p.data.clamp_(-0.01, 0.01)
+                    netD.zero_grad();
+                    optimD.zero_grad()
                 frozen_params([netD])
                 free_params([netE, W1, W2, W3])
             
+            d_fake = []
+            for code in codes:
+                d_fake.append(netD(code))
             correct, loss = train_clf(args, [l1, l2, l3], data, target, val=True)
-            scaled_loss = args.beta*loss
+            scaled_loss = args.beta*loss + -torch.mean(torch.cat(d_fake))
             scaled_loss.backward()
             optimE.step()
             optimW1.step()

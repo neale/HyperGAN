@@ -9,8 +9,6 @@ import numpy as np
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import matplotlib.pyplot as plt
-import presnet
-import resnet
 import natsort
 import utils
 import argparse

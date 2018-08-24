@@ -1,19 +1,19 @@
 import os
 import sys
 import time
-import pprint
 import argparse
 import numpy as np
-import torch
-import torchvision
-import torch.distributions.multivariate_normal as N
-
-from torch import nn
-from torch import optim
-from torch.nn import functional as F
-from torchvision import datasets, transforms
 from glob import glob
 from scipy.misc import imshow
+import torch
+import torchvision
+from torchvision import datasets, transforms
+from torch import nn
+from torch import autograd
+from torch import optim
+from torch.nn import functional as F
+import torch.distributions.multivariate_normal as N
+import pprint
 
 import utils
 import netdef
@@ -24,8 +24,8 @@ import matplotlib.pyplot as plt
 def load_args():
 
     parser = argparse.ArgumentParser(description='param-wgan')
-    parser.add_argument('--z', default=128, type=int, help='latent space width')
-    parser.add_argument('--ze', default=300, type=int, help='encoder dimension')
+    parser.add_argument('--z', default=200, type=int, help='latent space width')
+    parser.add_argument('--ze', default=256, type=int, help='encoder dimension')
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--epochs', default=200000, type=int)
     parser.add_argument('--model', default='small2', type=str)
@@ -38,6 +38,7 @@ def load_args():
     parser.add_argument('--scratch', default=False, type=bool)
     parser.add_argument('--exp', default='0', type=str)
     parser.add_argument('--use_d', default=False, type=str)
+    parser.add_argument('--use_aux', default=False, type=str)
 
     args = parser.parse_args()
     return args
@@ -99,7 +100,7 @@ class GeneratorW2(nn.Module):
         self.linear1 = nn.Linear(self.z, 512)
         self.linear2 = nn.Linear(512, 25600)
         self.bn1 = nn.BatchNorm1d(512)
-        self.relu = nn.ELU(inplace=True)
+        self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
         #print ('W2 in: ', x.shape)
@@ -140,7 +141,7 @@ class DiscriminatorZ(nn.Module):
         self.linear1 = nn.Linear(self.z, 1024)
         self.linear2 = nn.Linear(1024, 1024)
         self.linear3 = nn.Linear(1024, 1)
-        self.relu = nn.ELU(inplace=True)
+        self.relu = nn.LeakyReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -151,6 +152,31 @@ class DiscriminatorZ(nn.Module):
         x = self.linear3(x)
         x = self.sigmoid(x)
         # print ('Dz out: ', x.shape)
+        return x
+
+
+class AuxDz(nn.Module):
+    def __init__(self, args):
+        super(AuxDz, self).__init__()
+        for k, v in vars(args).items():
+            setattr(self, k, v)
+        
+        self.name = 'AuxDz'
+        self.linear1 = nn.Linear(self.z//10, 512)
+        self.linear2 = nn.Linear(512, 1024)
+        self.linear3 = nn.Linear(1024, 1024)
+        self.linear4 = nn.Linear(1024, 10)
+        self.relu = nn.ELU(inplace=True)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # print ('AuxDz in: ', x.shape)
+        x = x.view(self.batch_size, -1)
+        x = self.relu(self.linear1(x))
+        x = self.relu(self.linear2(x))
+        x = self.relu(self.linear3(x))
+        x = self.linear4(x)
+        # print ('AuxDz out: ', x.shape)
         return x
 
 
@@ -262,13 +288,15 @@ def train(args):
     W2 = GeneratorW2(args).cuda()
     W3 = GeneratorW3(args).cuda()
     netD = DiscriminatorZ(args).cuda()
-    print (netE, W1, W2, W3)
+    Aux = AuxDz(args).cuda()
+    print (netE, W1, W2, W3, netD, Aux)
 
     optimE = optim.Adam(netE.parameters(), lr=.005, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW1 = optim.Adam(W1.parameters(), lr=5e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW2 = optim.Adam(W2.parameters(), lr=5e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW3 = optim.Adam(W3.parameters(), lr=5e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimD = optim.Adam(netD.parameters(), lr=5e-5, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimAux = optim.Adam(Aux.parameters(), lr=5e-5, betas=(0.5, 0.9), weight_decay=1e-4)
     
     best_test_acc, best_test_loss = 0., np.inf
     args.best_loss, args.best_acc = best_test_loss, best_test_acc
@@ -279,6 +307,7 @@ def train(args):
         W2, optimW2, _ = load_model(args, W2, optimW2)
         W3, optimW3, _ = load_model(args, W3, optimW3)
         netD, optimD, _ = load_model(args, netD, optimD)
+        Aux, optimAux, _ = load_model(args, Aux, optimAux)
         best_test_acc, best_test_loss = stats
         print ('==> resumeing models at ', stats)
 
@@ -318,26 +347,26 @@ def train(args):
     for _ in range(1000):
         for batch_idx, (data, target) in enumerate(mnist_train):
             batch_zero_grad([netE, W1, W2, W3, netD])
+            batch_zero_grad([optimE, optimW1, optimW2, optimW3, optimAux])
             z = sample_d(x_dist, args.batch_size)
             codes = netE(z)
             l1 = W1(codes[0]).mean(0)
             l2 = W2(codes[1]).mean(0)
             l3 = W3(codes[2]).mean(0)
-            if args.use_d:
-                free_params([netD])
-                frozen_params([netE, W1, W2, W3])
-                for code in codes:
-                    noise = sample_d(z_dist, args.batch_size)
-                    d_real = netD(noise)
-                    d_fake = netD(code)
-                    d_real_loss = -1 * torch.log((1-d_real).mean())
-                    d_fake_loss = -1 * torch.log(d_fake.mean())
-                    d_real_loss.backward(retain_graph=True)
-                    d_fake_loss.backward(retain_graph=True)
-                    d_loss = d_real_loss + d_fake_loss
-                optimD.step()
 
-                frozen_params([netD])
+            if args.use_aux:
+                free_params([Aux])
+                frozen_params([netE, W1, W2, W3])
+                # just do the last conv layer
+                # split latent space into chunks -- each representing a class
+                factors = torch.split(codes[1], args.z//10, 1)
+                for y, factor in enumerate(factors):
+                    target = (torch.ones(args.batch_size, dtype=torch.long) * y).cuda()
+                    aux_pred = Aux(factor)
+                    aux_loss = F.cross_entropy(aux_pred, target)
+                    aux_loss.backward(retain_graph=True)
+                optimAux.step()
+                frozen_params([Aux])
                 free_params([netE, W1, W2, W3])
             
             correct, loss = train_clf(args, [l1, l2, l3], data, target, val=True)
