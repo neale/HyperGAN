@@ -194,7 +194,7 @@ def sample_z(args, grad=True):
     return z
 
 
-def create_d(shape, scale=.1, grad=True):
+def create_d(shape):
     mean = torch.zeros(shape)
     cov = torch.eye(shape)
     D = N.MultivariateNormal(mean, cov)
@@ -204,7 +204,7 @@ def create_d(shape, scale=.1, grad=True):
 def sample_d(D, shape, scale=1., grad=True):
     z = scale * D.sample((shape,)).cuda()
     z.requires_grad = grad
-    return scale * z
+    return z
 
 
 def sample_z_like(shape, scale=1., grad=True):
