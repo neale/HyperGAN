@@ -15,8 +15,6 @@ import argparse
 from glob import glob
 
 
-mdir = 'models/'
-
 def load_args():
     parser = argparse.ArgumentParser(description='PyTorch CIFAR Example')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
@@ -29,6 +27,8 @@ def load_args():
             help='learning rate (default: 0.01)')
     parser.add_argument('--net', type=str, default='mednet', metavar='N',
             help='network to train [ctiny, wide, wide7, cnet, mednet]')
+    parser.add_argument('--data', type=str, default='cifar', help='')
+    parser.add_argument('--mdir', type=str, default='models/', help='')
 
 
     args = parser.parse_args()
@@ -37,7 +37,7 @@ def load_args():
 
 def load_data():
     transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
+        transforms.RandomCrop(28, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -46,135 +46,20 @@ def load_data():
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
         ])
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
-            download=False,
+    trainset = torchvision.datasets.CIFAR10(root='./data_c', train=True,
+            download=True,
             transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=512,
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=256,
             shuffle=True,
             num_workers=2)
 
-    testset = torchvision.datasets.CIFAR10(root='./data', train=False,
-            download=False,
+    testset = torchvision.datasets.CIFAR10(root='./data_c', train=False,
+            download=True,
             transform=transform_test)
     testloader = torch.utils.data.DataLoader(testset, batch_size=100,
             shuffle=False, num_workers=2)
 
     return trainloader, testloader
-
-
-class WideNet(nn.Module):
-    def __init__(self):
-        super(WideNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 640, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(640)
-        self.conv2 = nn.Conv2d(640, 1280, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(1280)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(1280*8*8, 1280)
-        self.fc2 = nn.Linear(1280, 10)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = self.bn1(x)
-        x = self.pool(x)
-        x = F.relu(self.conv2(x))
-        x = self.bn2(x)
-        x = self.pool(x)
-        x = x.view(-1, 1280*8*8)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class CNet(nn.Module):
-    def __init__(self):
-        super(CNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.conv2 = nn.Conv2d(64, 128, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(128)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(128*8*8, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = self.bn1(x)
-        x = self.pool(x)
-        x = F.relu(self.conv2(x))
-        x = self.bn2(x)
-        x = self.pool(x)
-        x = x.view(-1, 128*8*8)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class MedNet(nn.Module):
-    def __init__(self):
-        super(MedNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 16, 3)
-        self.conv2 = nn.Conv2d(16, 32, 3)
-        self.conv3 = nn.Conv2d(32, 32, 3)
-        self.fc1   = nn.Linear(128, 64)
-        self.fc2   = nn.Linear(64, 10)
-
-    def forward(self, x):
-        out = F.relu(self.conv1(x))
-        out = F.max_pool2d(out, 2)
-        out = F.relu(self.conv2(out))
-        out = F.max_pool2d(out, 2)
-        out = F.relu(self.conv3(out))
-        out = F.max_pool2d(out, 2)
-        print (out.shape)
-        out = out.view(out.size(0), -1)
-        out = F.relu(self.fc1(out))
-        out = self.fc2(out)
-        return out
-
-
-class CTiny(nn.Module):
-    def __init__(self):
-        super(CTiny, self).__init__()
-        self.conv1 = nn.Conv2d(3, 32, 3)
-        self.dropout1 = nn.Dropout2d(.1)
-        self.conv2 = nn.Conv2d(32, 64, 5, stride=2)
-        self.dropout2 = nn.Dropout2d(.2)
-        self.linear1 = nn.Linear(169*64, 128)
-        self.dropout3 = nn.Dropout2d(.3)
-        self.linear2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
-        x = x.view(x.size(0), -1) 
-        x = self.linear1(x)
-        x = F.relu(x)
-        x = self.linear2(x)
-        return x
-
-
-class LeNet(nn.Module):
-    def __init__(self):
-        super(LeNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.linear1   = nn.Linear(16*5*5, 120)
-        self.linear2   = nn.Linear(120, 84)
-        self.linear3   = nn.Linear(84, 10)
-
-    def forward(self, x):
-        out = F.relu(self.conv1(x))
-        out = F.max_pool2d(out, 2)
-        out = F.relu(self.conv2(out))
-        out = F.max_pool2d(out, 2)
-        out = out.view(out.size(0), -1)
-        out = F.relu(self.linear1(out))
-        out = F.relu(self.linear2(out))
-        out = self.linear3(out)
-        return out
 
 
 def train(model, grad=False, e=2):
@@ -188,26 +73,22 @@ def train(model, grad=False, e=2):
         for param in child.parameters():
             param.requires_grad = False
     """
-    #optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-    #        lr=0.01, weight_decay=1e-4)
-    #optimizer = optim.Adam(model.parameters(), lr=0.1)
     optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
     model = torch.nn.DataParallel(model)
     cudnn.benchmark = True
-    for epoch in range(300):
+    for epoch in range(1):
         scheduler.step()
         model.train()
         total = 0
         correct = 0
         for i, (data, target) in enumerate(train_loader):
-            data, target = Variable(data).cuda(), Variable(target).cuda()
+            data, target = data.cuda(), target.cuda()
             optimizer.zero_grad()
             output = model(data)
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
-
             train_loss += loss.item()
             _, predicted = output.max(1)
             total += target.size(0)
@@ -227,7 +108,7 @@ def test(model, epoch=None, grad=False):
     correct = 0.
     criterion = nn.CrossEntropyLoss()
     for i, (data, target) in enumerate(test_loader):
-        data, target = Variable(data).cuda(), Variable(target).cuda()
+        data, target = data.cuda(), target.cuda()
         output = model(data)
         if grad is False:
             test_loss += criterion(output, target).item()
@@ -322,14 +203,15 @@ def run_model_search(args):
         acc = train(model)
         extract_weights_all(args, model, i)
         torch.save(model.state_dict(),
-                mdir+'cifar/{}/cifar_model_{}'.format(args.net, i))
+                args.mdir+'cifar/{}/cifar_model_{}'.format(args.net, i))
 
 
 """ Load a batch of networks to extract weights """
 def load_models(args):
 
-    model = get_network(args)
-    paths = glob(mdir+'cifar/{}/*.pt'.format(args.net))
+    import mnist
+    model = mnist.Small2().cuda()
+    paths = glob('exp_models/*.pt'.format(args.net))
     natpaths = natsort.natsorted(paths)
     ckpts = []
     print (len(paths))
@@ -337,8 +219,10 @@ def load_models(args):
         print ("loading model {}".format(path))
         ckpt = torch.load(path)
         ckpts.append(ckpt)
-        model.load_state_dict(ckpt)
+        #model.load_state_dict(ckpt)
+        model.load_state_dict(ckpt['state'])
         acc, loss = test(model, 0)
+        train(model, 0)
         print ('Acc: {}, Loss: {}'.format(acc, loss))
         #extract_weights_all(args, model, i)
 

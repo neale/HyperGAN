@@ -9,7 +9,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
-from torch.autograd import Variable
 import utils
 
 mdir = '/data0/models/HyperGAN/models/'
@@ -264,7 +263,7 @@ def train(model, grad=False):
     for epoch in range(2):
         model.train()
         for batch_idx, (data, target) in enumerate(train_loader):
-            data, target = Variable(data).cuda(), Variable(target).cuda()
+            data, target = data.cuda(), target.cuda()
             optimizer.zero_grad()
             output = model(data)
             loss = criterion(output, target)
@@ -278,13 +277,13 @@ def test(model, epoch=None, grad=False):
     model.eval()
     _, test_loader = load_data()
     test_loss = 0
-    correct = 0
+    correct = 0.
     criterion = nn.CrossEntropyLoss()
     for data, target in test_loader:
-        data, target = Variable(data).cuda(), Variable(target).cuda()
+        data, target = data.cuda(), target.cuda()
         output = model(data)
         if grad is False:
-            test_loss += criterion(output, target).data[0] # sum up batch loss
+            test_loss += criterion(output, target).item() # sum up batch loss
         else:
             test_loss += criterion(output, target)
 
@@ -292,7 +291,9 @@ def test(model, epoch=None, grad=False):
         correct += pred.eq(target.data.view_as(pred)).long().cpu().sum()
 
     test_loss /= len(test_loader.dataset)
-    acc = correct / len(test_loader.dataset)
+    acc = (correct.float() / len(test_loader.dataset)).item()
+    print (acc)
+
     if epoch:
         print('Average loss: {}, Accuracy: {}/{} ({}%)'.format(
             test_loss, correct, len(test_loader.dataset),

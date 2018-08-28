@@ -15,8 +15,6 @@ import argparse
 from glob import glob
 
 
-mdir = 'models/'
-
 def load_args():
     parser = argparse.ArgumentParser(description='PyTorch CIFAR Example')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
@@ -29,6 +27,8 @@ def load_args():
             help='learning rate (default: 0.01)')
     parser.add_argument('--net', type=str, default='mednet', metavar='N',
             help='network to train [ctiny, wide, wide7, cnet, mednet]')
+    parser.add_argument('--data', type=str, default='cifar', help='')
+    parser.add_argument('--mdir', type=str, default='models/', help='')
 
 
     args = parser.parse_args()
@@ -188,14 +188,11 @@ def train(model, grad=False, e=2):
         for param in child.parameters():
             param.requires_grad = False
     """
-    #optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-    #        lr=0.01, weight_decay=1e-4)
-    #optimizer = optim.Adam(model.parameters(), lr=0.1)
     optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
     model = torch.nn.DataParallel(model)
     cudnn.benchmark = True
-    for epoch in range(300):
+    for epoch in range(1):
         scheduler.step()
         model.train()
         total = 0
@@ -207,7 +204,6 @@ def train(model, grad=False, e=2):
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
-
             train_loss += loss.item()
             _, predicted = output.max(1)
             total += target.size(0)
@@ -322,14 +318,15 @@ def run_model_search(args):
         acc = train(model)
         extract_weights_all(args, model, i)
         torch.save(model.state_dict(),
-                mdir+'cifar/{}/cifar_model_{}'.format(args.net, i))
+                args.mdir+'cifar/{}/cifar_model_{}'.format(args.net, i))
 
 
 """ Load a batch of networks to extract weights """
 def load_models(args):
 
     model = get_network(args)
-    paths = glob(mdir+'cifar/{}/*.pt'.format(args.net))
+    #paths = glob(args.mdir+'cifar/{}/*.pt'.format(args.net))
+    paths = glob('exp_models/*.pt'.format(args.net))
     natpaths = natsort.natsorted(paths)
     ckpts = []
     print (len(paths))
@@ -337,8 +334,10 @@ def load_models(args):
         print ("loading model {}".format(path))
         ckpt = torch.load(path)
         ckpts.append(ckpt)
-        model.load_state_dict(ckpt)
+        #model.load_state_dict(ckpt)
+        model.load_state_dict(ckpt['state'])
         acc, loss = test(model, 0)
+        train(model, 0)
         print ('Acc: {}, Loss: {}'.format(acc, loss))
         #extract_weights_all(args, model, i)
 

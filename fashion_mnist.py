@@ -93,11 +93,16 @@ class Small2(nn.Module):
         return x
 
 
-def train(model, grad=False):
+def train(model, grad=False, ft=False):
     
     train_loss, train_acc = 0., 0.
     train_loader, _ = load_data()
     criterion = nn.CrossEntropyLoss()
+    if ft:
+        for child in list(model.children())[:2]:
+            print('removing {}'.format(child))
+            for param in child.parameters():
+                param.requires_grad = False
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3)
     for epoch in range(1):
         model.train()
@@ -248,7 +253,8 @@ def run_model_search(args):
 def load_models(args):
    
     model = get_network(args)
-    paths = glob(args.mdir+args.data+'/{}/*.pt'.format(args.net))
+    #paths = glob(args.mdir+args.data+'/{}/*.pt'.format(args.net))
+    paths = glob('exp_models/*.pt'.format(args.net))
     natpaths = natsort.natsorted(paths)
     ckpts = []
     print (len(paths))
@@ -256,8 +262,10 @@ def load_models(args):
         print ("loading model {}".format(path))
         ckpt = torch.load(path)
         ckpts.append(ckpt)
-        model.load_state_dict(ckpt)
+        model.load_state_dict(ckpt['state'])
+        #model.load_state_dict(ckpt)
         test(model, 0)
+        train(model, ft=True)
         #extract_weights_all(args, model, i)
     """
     for i in range(len(ckpts)):

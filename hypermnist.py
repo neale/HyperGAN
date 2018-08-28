@@ -287,6 +287,22 @@ def pretrain_loss(encoded, noise):
     return mean_loss, cov_loss
 
 
+def save_test(args, Z):
+    import mnist
+    model = mnist.Small2().cuda()
+    state = model.state_dict()
+    layers = zip(args.stat['layer_names'], Z)
+    for i, (name, params) in enumerate(layers):
+        name = name + '.weight'
+        loader = state[name]
+        state[name] = params.detach()
+        assert state[name].equal(loader) == False
+        model.load_state_dict(state)
+    acc, loss = mnist.test(model, epoch=1, grad=False)
+
+    return acc, loss, model
+
+
 def train(args):
     
     torch.manual_seed(8734)
@@ -434,6 +450,11 @@ def train(args):
                     if test_acc > best_test_acc:
                         best_test_acc = test_acc
                         args.best_acc = test_acc
+                acc, loss, model = save_test(args, z_test)
+                if acc > best_test_acc:
+                    print ('saving hypernet')
+                    torch.save({'state': model.state_dict()}, 'exp_models/hypermnist.pt')
+
 
 
 if __name__ == '__main__':

@@ -169,7 +169,7 @@ def create_d(shape, scale=.1, grad=True):
 def sample_d(D, shape, scale=1., grad=True):
     z = scale * D.sample((shape,)).cuda()
     z.requires_grad = grad
-    return scale * z
+    return z
 
 
 def sample_z_like(shape, scale=1., grad=True):
@@ -251,6 +251,22 @@ def pretrain_loss(encoded, noise):
     cov_e /= 999
     cov_loss = F.mse_loss(cov_z, cov_e)
     return mean_loss, cov_loss
+
+
+def save_test(args, Z):
+    import mnist
+    model = mnist.Small2().cuda()
+    state = model.state_dict()
+    layers = zip(args.stat['layer_names'], Z)
+    for i, (name, params) in enumerate(layers):
+        name = name + '.weight'
+        loader = state[name]
+        state[name] = params.detach()
+        assert state[name].equal(loader) == False
+        model.load_state_dict(state)
+    acc, loss = mnist.test(model, epoch=1, grad=False)
+
+    return acc, loss, model
 
 
 def train(args):
@@ -374,6 +390,11 @@ def train(args):
                     test_loss += loss.item()
                 test_loss /= len(mnist_test.dataset)
                 test_acc /= len(mnist_test.dataset)
+                acc, loss, model = save_test(args, z_test)
+                if acc > best_test_acc:
+                    print ('saving hypernet')
+                    torch.save({'state': model.state_dict()},
+                            'exp_models/hypermnist_{}.pt'.format(acc))
                 print ('Test Accuracy: {}, Test Loss: {}'.format(test_acc, test_loss))
                 if test_loss < best_test_loss or test_acc > best_test_acc:
                     print ('==> new best stats, saving')
