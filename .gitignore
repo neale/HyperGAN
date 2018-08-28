@@ -7,6 +7,9 @@
 *.png
 *.pyc
 data/
+data_f/
+data_c/
+data_m/
 bin/
 lib/
 include/

@@ -13,8 +13,8 @@ import numpy as np
 
 from glob import glob
 from scipy.misc import imsave
-import train_mnist as mnist
-import train_cifar as cifar
+import mnist
+import cifar
 
 import torch.nn as nn
 import torch.nn.init as init

@@ -15,8 +15,7 @@ from torch.nn import functional as F
 import torch.distributions.multivariate_normal as N
 import pprint
 
-import ops
-import utils_xai as utils
+import utils
 import netdef
 import datagen
 import matplotlib.pyplot as plt
