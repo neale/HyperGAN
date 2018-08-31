@@ -32,26 +32,6 @@ def load_args():
     return args
 
 
-def load_data():
-    torch.cuda.manual_seed(1)
-    kwargs = {'num_workers': 1, 'pin_memory': True}
-    train_loader = torch.utils.data.DataLoader(
-        datasets.FashionMNIST('./data_f', train=True, download=True,
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=64, shuffle=True, **kwargs)
-    test_loader = torch.utils.data.DataLoader(
-        datasets.FashionMNIST('./data_f', train=False, download=True,
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=64, shuffle=True, **kwargs)
-    return train_loader, test_loader
-
-
 """ net with divisible parameters """
 class Small(nn.Module):
     def __init__(self):

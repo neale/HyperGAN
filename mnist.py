@@ -10,6 +10,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 import utils
+import models.mnist_clf as models
+import models.models_mnist as hyper
+import datagen
+
 
 mdir = '/data0/models/HyperGAN/models/'
 # Training settings
@@ -31,228 +35,10 @@ def load_args():
     return args
 
 
-def load_data():
-    torch.cuda.manual_seed(1)
-    kwargs = {'num_workers': 1, 'pin_memory': True}
-    train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('./data', train=True, download=False,
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=64, shuffle=True, **kwargs)
-    test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('./data', train=False, download=False,
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=64, shuffle=True, **kwargs)
-    return train_loader, test_loader
-
-""" trains a 4x wide MNIST network with 3x3 filters """
-class WideNet(nn.Module):
-    def __init__(self):
-        super(WideNet, self).__init__()
-        self.conv1 = nn.Sequential(
-                nn.Conv2d(1, 128, 3),
-                nn.ReLU(True),
-                nn.MaxPool2d(2, 2),
-                )
-        self.conv2 = nn.Sequential(
-                nn.Conv2d(128, 256, 3),
-                nn.ReLU(True),
-                nn.MaxPool2d(2, 2),
-                nn.MaxPool2d(2, 2),
-                )
-        self.fc1 = nn.Sequential(
-                nn.Linear(2*2*256, 1024), 
-                nn.ReLU(True),
-                )
-        self.fc2 = nn.Linear(1024, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = x.view(-1, 2*2*256)
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
-
-
-""" 4x Wide MNIST net with 7x7 filters """
-class WideNet7(nn.Module):
-    def __init__(self):
-        super(WideNet7, self).__init__()
-        self.conv1 = nn.Sequential(
-                nn.Conv2d(1, 128, 7),
-                nn.ReLU(True),
-                nn.MaxPool2d(2, 2),
-                )
-        self.conv2 = nn.Sequential(
-                nn.Conv2d(128, 256, 7),
-                nn.ReLU(True),
-                nn.MaxPool2d(2, 2),
-                )
-        self.linear1 = nn.Sequential(
-                nn.Linear(2*2*256, 1024), 
-                nn.ReLU(True),
-                )
-        self.linear2 = nn.Linear(1024, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = x.view(-1, 2*2*256)
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
-
-
-""" Standard small MNIST net with 3x3 filters """
-class Net(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Sequential(
-                nn.Conv2d(1, 32, 3),
-                nn.ReLU(True),
-                nn.MaxPool2d(2, 2),
-                )
-        self.conv2 = nn.Sequential(
-                nn.Conv2d(32, 64, 3),
-                nn.ReLU(True),
-                nn.MaxPool2d(2, 2),
-                nn.MaxPool2d(2, 2),
-                )
-        self.linear1 = nn.Sequential(
-                nn.Linear(2*2*64, 128), 
-                nn.ReLU(True),
-                )
-        self.linear2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = x.view(-1, 2*2*64)
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
-
-""" Standard small MNIST net with 3x3 filters """
-class FCN(nn.Module):
-    def __init__(self):
-        super(FCN, self).__init__()
-        self.conv1 = nn.Sequential(
-                nn.Conv2d(1, 32, 3),
-                nn.ReLU(True),
-                nn.MaxPool2d(2, 2),
-                )
-        self.conv2 = nn.Sequential(
-                nn.Conv2d(32, 64, 3),
-                nn.ReLU(True),
-                nn.MaxPool2d(2, 2),
-                )
-        self.linear = nn.Linear(1600, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = x.view(-1, 1600)
-        x = self.linear(x)
-        return x
-
-""" Standard small MNIST net with 3x3 filters """
-class FCN2(nn.Module):
-    def __init__(self):
-        super(FCN2, self).__init__()
-        self.conv1 = nn.Sequential(
-                nn.Conv2d(1, 64, 7),
-                nn.ReLU(True),
-                nn.MaxPool2d(4, 4),
-                )
-        self.linear = nn.Linear(1600, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = x.view(-1, 1600)
-        x = self.linear(x)
-        return x
-
-""" net with divisible parameters """
-class Small(nn.Module):
-    def __init__(self):
-        super(Small, self).__init__()
-        self.conv1 = nn.Sequential(
-                nn.Conv2d(1, 64, 7, 1, 4, bias=False),
-                nn.ReLU(True),
-                nn.MaxPool2d(4, 4),
-                )
-        self.linear = nn.Linear(3136, 10, bias=False)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = x.view(-1, 3136)
-        x = self.linear(x)
-        return x
-
-""" net with divisible parameters """
-class Small2(nn.Module):
-    def __init__(self):
-        super(Small2, self).__init__()
-        self.conv1 = nn.Sequential(
-                nn.Conv2d(1, 32, 5, stride=1, bias=False),
-                nn.LeakyReLU(inplace=True),
-                nn.MaxPool2d(2, 2),
-                )
-        self.conv2 = nn.Sequential(
-                nn.Conv2d(32, 32, 5, stride=1, bias=False),
-                nn.LeakyReLU(inplace=True),
-                nn.MaxPool2d(2, 2),
-                )
-        self.linear = nn.Linear(512, 10, bias=False)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = x.view(-1, 512)
-        x = self.linear(x)
-        return x
-
-""" Narrow MNIST net with 3x3 filters """
-class TinyNet(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Sequential(
-                nn.Conv2d(1, 8, 3),
-                nn.ReLU(True),
-                nn.MaxPool2d(2, 2),
-                )
-        self.conv2 = nn.Sequential(
-                nn.Conv2d(8, 16, 3),
-                nn.ReLU(True),
-                nn.MaxPool2d(2, 2),
-                nn.MaxPool2d(2, 2),
-                )
-        self.linear1 = nn.Sequential(
-                nn.Linear(2*2*64, 128), 
-                nn.ReLU(True),
-                )
-        self.linear2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = x.view(-1, 2*2*64)
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
-
-
-
 def train(model, grad=False):
     
     train_loss, train_acc = 0., 0.
-    train_loader, _ = load_data()
+    train_loader, _ = datagen.load_mnist(None)
     criterion = nn.CrossEntropyLoss()
     for child in list(model.children())[:2]:
         print('removing {}'.format(child))
@@ -275,7 +61,7 @@ def train(model, grad=False):
 
 def test(model, epoch=None, grad=False):
     model.eval()
-    _, test_loader = load_data()
+    _, test_loader = datagen.load_mnist(None)
     test_loss = 0
     correct = 0.
     criterion = nn.CrossEntropyLoss()
@@ -299,6 +85,48 @@ def test(model, epoch=None, grad=False):
             test_loss, correct, len(test_loader.dataset),
             100. * correct / len(test_loader.dataset)))
     return acc, test_loss
+
+
+def test_hypernet_boosted(models, epoch=None, grad=False):
+    args = utils.load_default_args()
+    dist = utils.create_d(args.ze)
+    """ calc classifier loss """
+    netE, W1, W2, W3 = models
+    _, test_loader = datagen.load_mnist(args)
+    test_loss = 0
+    correct = 0.
+    args.boost = 1000
+    criterion = nn.CrossEntropyLoss()
+    args.batch_size = 2
+    for data, target in test_loader:
+        output = []
+        for i in range(args.boost):
+            z = utils.sample_d(dist, args.batch_size)
+            codes = netE(z)
+            l1 = W1(codes[0]).mean(0)
+            l2 = W2(codes[1]).mean(0)
+            l3 = W3(codes[2]).mean(0)
+            data, target = data.cuda(), target.cuda()
+            out = F.conv2d(data, l1, stride=1)
+            out = F.leaky_relu(out)
+            out = F.max_pool2d(out, 2, 2)
+            out = F.conv2d(out, l2, stride=1)
+            out = F.leaky_relu(out)
+            out = F.max_pool2d(out, 2, 2)
+            out = out.view(-1, 512)
+            out = F.linear(out, l3)
+            output.append(out)
+        output = torch.stack(output)
+        preds  = []
+        for i in range(output.shape[1]):
+            pred = output[:, i, :].data.max(1, keepdim=True)[1]
+            preds.append(torch.mode(pred, dim=0)[0])
+        pred = torch.stack(preds)
+        
+        c = pred.eq(target.data.view_as(pred)).long().cpu().sum()
+        correct += c
+    acc = (correct.float() / len(test_loader.dataset)).item()
+    print (acc)
 
 
 """ Extract weights of a loaded model """
@@ -395,21 +223,21 @@ def w_init(model, dist='normal'):
 """ returns instance of specific model without weights """
 def get_network(args):
     if args.net == 'net':
-        model = Net().cuda()
+        model = models.Net().cuda()
     elif args.net == 'wide':
-        model = WideNet().cuda()
+        model = models.WideNet().cuda()
     elif args.net == 'wide7':
-        model = WideNet7().cuda()
+        model = models.WideNet7().cuda()
     elif args.net == 'tiny':
-        model = TinyNet().cuda()
+        model = models.TinyNet().cuda()
     elif args.net == 'fcn':
-        model = FCN().cuda()
+        model = models.FCN().cuda()
     elif args.net == 'fcn2':
-        model = FCN2().cuda()
+        model = models.FCN2().cuda()
     elif args.net == 'small':
-        model = Small().cuda()
+        model = models.Small().cuda()
     elif args.net == 'small2':
-        model = Small2().cuda()
+        model = models.Small2().cuda()
     else:
         raise NotImplementedError
     return model
@@ -453,6 +281,9 @@ def load_models(args):
 
 if __name__ == '__main__':
     args = load_args()
-    
-    run_model_search(args)
+    paths =  glob('exp_models/hypermnist*')
+    for path in paths:
+        models = utils.load_hypernet(path)
+        test_hypernet_boosted(models)
+    #run_model_search(args)
     #load_models(args)

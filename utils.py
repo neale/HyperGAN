@@ -4,6 +4,7 @@ import time
 import torch
 import natsort
 import datagen
+import argparse
 import scipy.misc
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,39 +14,133 @@ import numpy as np
 
 from glob import glob
 from scipy.misc import imsave
-import mnist
-import cifar
-
+import models.models_mnist as hyper
 import torch.nn as nn
 import torch.nn.init as init
+import torch.distributions.multivariate_normal as N
 
 
 param_dir = './params/sampled/mnist/test1/'
 model_dir = 'models/HyperGAN/'
 
 
-def save_model(args, net, optim):
+def sample_z(args, grad=True):
+    z = torch.randn(args.batch_size, args.dim, requires_grad=grad).cuda()
+    return z
+
+
+def create_d(shape):
+    mean = torch.zeros(shape)
+    cov = torch.eye(shape)
+    D = N.MultivariateNormal(mean, cov)
+    return D
+
+
+def sample_d(D, shape, scale=1., grad=True):
+    z = scale * D.sample((shape,)).cuda()
+    z.requires_grad = grad
+    return z
+
+
+def sample_z_like(shape, scale=1., grad=True):
+    return torch.randn(*shape, requires_grad=grad).cuda()
+
+
+def save_model(args, model, optim):
     path = '{}/{}/{}_{}.pt'.format(
-            args.dataset, args.model, net.name, args.exp)
+            args.dataset, args.model, model.name, args.exp)
     path = model_dir + path
     torch.save({
-        'state_dict': net.state_dict(),
+        'state_dict': model.state_dict(),
         'optimizer': optim.state_dict(),
         'best_acc': args.best_acc,
         'best_loss': args.best_loss
         }, path)
 
 
-def load_model(args, net, optim):
+def load_model(args, model, optim):
     path = '{}/{}/{}_{}.pt'.format(
-            args.dataset, args.model, net.name, args.exp)
+            args.dataset, args.model, model.name, args.exp)
     path = model_dir + path
     ckpt = torch.load(path)
-    net.load_state_dict(ckpt['state_dict'])
+    model.load_state_dict(ckpt['state_dict'])
     optim.load_state_dict(ckpt['optimizer'])
     acc = ckpt['best_acc']
     loss = ckpt['best_loss']
-    return net, optim, (acc, loss)
+    return model, optim, (acc, loss)
+
+
+def get_net_only(model):
+    net_dict = {
+            'state_dict': model.state_dict(),
+    }
+    return net_dict
+
+
+def load_net_only(model, d):
+    model.load_state_dict(d['state_dict'])
+    return model
+
+
+def save_clf(args, Z, acc):
+    import models.mnist_clf as models
+    model = models.Small2().cuda()
+    state = model.state_dict()
+    layers = zip(args.stat['layer_names'], Z)
+    for i, (name, params) in enumerate(layers):
+        name = name + '.weight'
+        loader = state[name]
+        state[name] = params.detach()
+        assert state[name].equal(loader) == False
+        model.load_state_dict(state)
+    path = 'exp_models/hypermnist_clf_{}.pt'.format(acc)
+    print ('saving hypernet to {}'.format(path))
+    torch.save({'state_dict': model.state_dict()}, path)
+
+
+def save_hypernet(args, models, acc):
+    netE, W1, W2, W3 = models
+    hypernet_dict = {
+            'E':  get_net_only(netE),
+            'W1': get_net_only(W1),
+            'W2': get_net_only(W2),
+            'W3': get_net_only(W3),
+            }
+    path = 'exp_models/hypermnist_{}.pt'.format(acc)
+    torch.save(hypernet_dict, path)
+    print ('Hypernet saved to {}'.format(path))
+
+
+""" hard coded for mnist experiment dont use generally """
+def load_hypernet(path, args=None):
+    if args is None:
+        args = load_default_args()
+    netE = hyper.Encoder_small(args).cuda()
+    W1 = hyper.GeneratorW1_small(args).cuda()
+    W2 = hyper.GeneratorW2_small(args).cuda()
+    W3 = hyper.GeneratorW3_small(args).cuda()
+    print ('loading hypernet from {}'.format(path))
+    d = torch.load(path)
+    netE = load_net_only(netE, d['E'])
+    W1 = load_net_only(W1, d['W1'])
+    W2 = load_net_only(W2, d['W2'])
+    W3 = load_net_only(W3, d['W3'])
+    return (netE, W1, W2, W3)
+
+
+def load_default_args():
+    parser = argparse.ArgumentParser(description='default hyper-args')
+    parser.add_argument('--z', default=128, type=int, help='latent space width')
+    parser.add_argument('--ze', default=300, type=int, help='encoder dimension')
+    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--model', default='small2', type=str)
+    parser.add_argument('--beta', default=1000, type=int)
+    parser.add_argument('--use_x', default=False, type=bool)
+    parser.add_argument('--exp', default='0', type=str)
+    parser.add_argument('--use_d', default=False, type=str)
+    parser.add_argument('--boost', default=10, type=int)
+    args = parser.parse_args()
+    return args
 
 
 def plot_histogram(x, save=False, id=None):
@@ -109,47 +204,6 @@ def save_samples(args, samples, iter, path):
     im_path = 'plots/{}/{}/filters/{}.png'.format(args.dataset, args.model, iter)
     cv2.imwrite(im_path, grid_img)
     return
-
-
-def test_samples(args, params, train=False):
-    # take random model
-    paths = natsort.natsorted(glob(model_dir+'{}/{}/*.pt'.format(
-        args.dataset, args.model)))
-    #id = np.random.randint(len(paths)-1)
-    id = 0
-    if args.dataset == 'cifar':
-        model_fn = getattr(cifar, args.stat['name'])
-    else:
-        model_fn = getattr(mnist, args.stat['name'])
-    model = model_fn().cuda()
-    model.load_state_dict(torch.load(paths[id]))
-    if train is True:
-        if args.dataset == 'cifar':
-            fn = cifar.train
-        else:
-            fn = mnist.train
-    else:
-        if args.dataset == 'cifar':
-            fn = cifar.test
-        else:
-            fn = mnist.test
-    #oracle_acc, oracle_loss = fn(model, grad=False)
-    state = model.state_dict()
-    if args.layer == 'all':
-        assert type(params) == list
-        layers = zip(args.stat['layer_names'], params)
-        for i, (name, params) in enumerate(layers):
-            name = name + '.weight'
-            loader = state[name]
-            state[name] = params.data
-            assert state[name].equal(loader) == False
-            # plot_histogram(params, save=True, id=str(id)+'-'+str(iter))
-            model.load_state_dict(state)
-        acc, loss = fn(model, grad=True)
-    else:
-        raise NotImplementedError
-
-    return acc, loss
 
 
 _, term_width = os.popen('stty size', 'r').read().split()

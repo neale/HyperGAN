@@ -11,8 +11,10 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 import natsort
 import utils
+import datagen
 import argparse
 from glob import glob
+import models.cifar_clf as models
 
 
 def load_args():
@@ -35,152 +37,10 @@ def load_args():
     return args
 
 
-def load_data():
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
-    transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
-            download=False,
-            transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=512,
-            shuffle=True,
-            num_workers=2)
-
-    testset = torchvision.datasets.CIFAR10(root='./data', train=False,
-            download=False,
-            transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=100,
-            shuffle=False, num_workers=2)
-
-    return trainloader, testloader
-
-
-class WideNet(nn.Module):
-    def __init__(self):
-        super(WideNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 640, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(640)
-        self.conv2 = nn.Conv2d(640, 1280, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(1280)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(1280*8*8, 1280)
-        self.fc2 = nn.Linear(1280, 10)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = self.bn1(x)
-        x = self.pool(x)
-        x = F.relu(self.conv2(x))
-        x = self.bn2(x)
-        x = self.pool(x)
-        x = x.view(-1, 1280*8*8)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class CNet(nn.Module):
-    def __init__(self):
-        super(CNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.conv2 = nn.Conv2d(64, 128, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(128)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(128*8*8, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = self.bn1(x)
-        x = self.pool(x)
-        x = F.relu(self.conv2(x))
-        x = self.bn2(x)
-        x = self.pool(x)
-        x = x.view(-1, 128*8*8)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class MedNet(nn.Module):
-    def __init__(self):
-        super(MedNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 16, 3)
-        self.conv2 = nn.Conv2d(16, 32, 3)
-        self.conv3 = nn.Conv2d(32, 32, 3)
-        self.fc1   = nn.Linear(128, 64)
-        self.fc2   = nn.Linear(64, 10)
-
-    def forward(self, x):
-        out = F.relu(self.conv1(x))
-        out = F.max_pool2d(out, 2)
-        out = F.relu(self.conv2(out))
-        out = F.max_pool2d(out, 2)
-        out = F.relu(self.conv3(out))
-        out = F.max_pool2d(out, 2)
-        print (out.shape)
-        out = out.view(out.size(0), -1)
-        out = F.relu(self.fc1(out))
-        out = self.fc2(out)
-        return out
-
-
-class CTiny(nn.Module):
-    def __init__(self):
-        super(CTiny, self).__init__()
-        self.conv1 = nn.Conv2d(3, 32, 3)
-        self.dropout1 = nn.Dropout2d(.1)
-        self.conv2 = nn.Conv2d(32, 64, 5, stride=2)
-        self.dropout2 = nn.Dropout2d(.2)
-        self.linear1 = nn.Linear(169*64, 128)
-        self.dropout3 = nn.Dropout2d(.3)
-        self.linear2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
-        x = x.view(x.size(0), -1) 
-        x = self.linear1(x)
-        x = F.relu(x)
-        x = self.linear2(x)
-        return x
-
-
-class LeNet(nn.Module):
-    def __init__(self):
-        super(LeNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.linear1   = nn.Linear(16*5*5, 120)
-        self.linear2   = nn.Linear(120, 84)
-        self.linear3   = nn.Linear(84, 10)
-
-    def forward(self, x):
-        out = F.relu(self.conv1(x))
-        out = F.max_pool2d(out, 2)
-        out = F.relu(self.conv2(out))
-        out = F.max_pool2d(out, 2)
-        out = out.view(out.size(0), -1)
-        out = F.relu(self.linear1(out))
-        out = F.relu(self.linear2(out))
-        out = self.linear3(out)
-        return out
-
-
 def train(model, grad=False, e=2):
 
     train_loss, train_acc = 0., 0.
-    train_loader, _ = load_data()
+    train_loader, _ = datagen.load_data(None)
     criterion = nn.CrossEntropyLoss()
     """
     for child in list(model.children())[:-1]:
@@ -218,7 +78,7 @@ def train(model, grad=False, e=2):
 
 def test(model, epoch=None, grad=False):
     model.eval()
-    _, test_loader = load_data()
+    _, test_loader = datagen.load_data(None)
     test_loss = 0.
     correct = 0.
     criterion = nn.CrossEntropyLoss()
@@ -295,15 +155,15 @@ def w_init(model, dist='normal'):
 
 def get_network(args):
     if args.net == 'cnet':
-        model = CNet().cuda()
+        model = models.CNet().cuda()
     elif args.net == 'wide':
-        model = WideNet().cuda()
+        model = models.WideNet().cuda()
     elif args.net == 'ctiny':
-        model = CTiny().cuda()
+        model = models.CTiny().cuda()
     elif args.net == 'lenet':
-        model = LeNet().cuda()
+        model = models.LeNet().cuda()
     elif args.net == 'mednet':
-        model = MedNet().cuda()
+        model = models.MedNet().cuda()
     else:
         raise NotImplementedError
     return model
