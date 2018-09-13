@@ -14,3 +14,4 @@ bin/
 lib/
 include/
 exp_models/
+.*.sw* 
