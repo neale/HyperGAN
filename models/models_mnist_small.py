@@ -18,6 +18,7 @@ class Encoder(nn.Module):
         self.bn1 = nn.BatchNorm1d(512)
         self.bn2 = nn.BatchNorm1d(512)
         self.relu = nn.ELU(inplace=True)
+        print ('wtf')
 
     def forward(self, x):
         #print ('E in: ', x.shape)

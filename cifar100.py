@@ -19,44 +19,46 @@ import models.cifar_clf as models
 
 def load_args():
     parser = argparse.ArgumentParser(description='PyTorch CIFAR Example')
-    parser.add_argument('--batch_size', type=int, default=64, metavar='N', help='')
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N', help='')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N', help='')
-    parser.add_argument('--lr', type=float, default=0.01, metavar='LR', help='')
-    parser.add_argument('--net', type=str, default='mednet', metavar='N', help='')
-    parser.add_argument('--dataset', type=str, default='cifar', help='')
+    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+            help='input batch size for training (default: 64)')
+    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+            help='input batch size for testing (default: 1000)')
+    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+            help='number of epochs to train (default: 10)')
+    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+            help='learning rate (default: 0.01)')
+    parser.add_argument('--net', type=str, default='mednet', metavar='N',
+            help='network to train [ctiny, wide, wide7, cnet, mednet]')
+    parser.add_argument('--data', type=str, default='cifar', help='')
     parser.add_argument('--mdir', type=str, default='models/', help='')
-    parser.add_argument('--scratch', type=bool, default=False, help='')
-    parser.add_argument('--ft', type=bool, default=False, help='')
-    parser.add_argument('--hyper', type=bool, default=False, help='')
-    parser.add_argument('--task', type=str, default='train', help='')
+
 
     args = parser.parse_args()
     return args
 
 
-def train(args, model, grad=False):
-    if args.dataset == 'cifar':
-        train_loader, _ = datagen.load_cifar(args)
-    elif args.dataset == 'cifar100':
-        train_loader, _ = datagen.load_10_class_cifar100(args)
+def train(model, grad=False, e=2):
 
     train_loss, train_acc = 0., 0.
+    train_loader, _ = datagen.load_data(None)
     criterion = nn.CrossEntropyLoss()
-    if args.ft:
-        for child in list(model.children())[:-1]:
-            # print ('removing {}'.format(child))
-            for param in child.parameters():
-                param.requires_grad = False
-    
-    optimizer = optim.Adam(model.parameters(), lr=2e-3, weight_decay=1e-4)
-    #optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
-    for epoch in range(args.epochs):
+    """
+    for child in list(model.children())[:-1]:
+        # print ('removing {}'.format(child))
+        for param in child.parameters():
+            param.requires_grad = False
+    """
+    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
+    model = torch.nn.DataParallel(model)
+    cudnn.benchmark = True
+    for epoch in range(1):
+        scheduler.step()
         model.train()
         total = 0
         correct = 0
         for i, (data, target) in enumerate(train_loader):
-            data, target = data.cuda(), target.cuda()
+            data, target = Variable(data).cuda(), Variable(target).cuda()
             optimizer.zero_grad()
             output = model(data)
             loss = criterion(output, target)
@@ -67,21 +69,21 @@ def train(args, model, grad=False):
             total += target.size(0)
             correct += predicted.eq(target).sum().item()
             acc = 100. * correct / total
-        acc, loss = test(args, model, epoch+1)
+            utils.progress_bar(i, len(train_loader),
+                    'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+                    % (train_loss/(i+1), 100.*correct/total, correct, total))
+        acc, loss = test(model, epoch)
     return acc, loss
 
 
-def test(args, model, epoch=None, grad=False):
+def test(model, epoch=None, grad=False):
     model.eval()
-    if args.dataset == 'cifar':
-        _, test_loader = datagen.load_cifar(args)
-    elif args.dataset == 'cifar100':
-        _, test_loader = datagen.load_10_class_cifar100(args)
+    _, test_loader = datagen.load_data(None)
     test_loss = 0.
     correct = 0.
     criterion = nn.CrossEntropyLoss()
     for i, (data, target) in enumerate(test_loader):
-        data, target = data.cuda(), target.cuda()
+        data, target = Variable(data).cuda(), Variable(target).cuda()
         output = model(data)
         if grad is False:
             test_loss += criterion(output, target).item()
@@ -98,6 +100,26 @@ def test(args, model, epoch=None, grad=False):
             100. * correct / len(test_loader.dataset)))
 
     return acc, test_loss
+
+
+def extract_weights(model, id):
+    state = model.state_dict()
+    cnames = [x for x in list(state.keys()) if 'conv' in x]
+    names = [x for x in cnames if 'weight' in x]
+    print (names)
+    for name in names:
+        print (name)
+        dir = name[:-7]
+        conv = state[name]
+        params = conv.cpu().numpy()
+        # utils.plot_histogram(params, save=True)
+        # return
+        save_dir = 'params/cifar/resnet/{}/'.format(dir)
+        print ("making ", save_dir)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        print ('saving param size: ', params.shape)
+        np.save('./params/cifar/resnet/{}/cifar_params_{}_{}'.format(dir, dir, id), params)
 
 
 def extract_weights_all(args, model, id):
@@ -147,61 +169,46 @@ def get_network(args):
     return model
 
 
-def run_model_search(args, path):
+def run_model_search(args):
     for i in range(0, 2):
         print ("\nRunning CIFAR Model {}...".format(i))
         model = get_network(args)
         # model = w_init(model, 'normal')
         print (model)
-        acc, loss = train(args, model)
-        #extract_weights_all(args, model, i)
-        torch.save({'state_dict': model.state_dict()},
-                path+'cifar_clf_{}.pt'.format(acc))
+        acc = train(model)
+        extract_weights_all(args, model, i)
+        torch.save(model.state_dict(),
+                args.mdir+'cifar/{}/cifar_model_{}'.format(args.net, i))
 
 
 """ Load a batch of networks to extract weights """
-def load_models(args, path):
+def load_models(args):
 
     model = get_network(args)
-    paths = glob(path + '*.pt'.format(args.net))
-    paths = natsort.natsorted(paths)
-    for i, path in enumerate(paths):
+    #paths = glob(args.mdir+'cifar/{}/*.pt'.format(args.net))
+    paths = glob('exp_models/*.pt'.format(args.net))
+    natpaths = natsort.natsorted(paths)
+    ckpts = []
+    print (len(paths))
+    for i, path in enumerate(natpaths):
         print ("loading model {}".format(path))
         ckpt = torch.load(path)
-        state = ckpt['state_dict']
-        try: #bias issue: TODO remove this bit after HyperNet retraining
-            model.load_state_dict(state)
-        except RuntimeError:
-            model_dict = model.state_dict()
-            filtered = {k: v for k, v in state.items() if k in model_dict}
-            model_dict.update(filtered)
-            model.load_state_dict(filtered)
-
-        acc, loss = test(args, model, 0)
-        print ('Test0 Acc: {}, Loss: {}'.format(acc, loss))
-        acc, loss = train(args, model)
-        print ('Train Acc: {}, Loss: {}'.format(acc, loss))
+        ckpts.append(ckpt)
+        #model.load_state_dict(ckpt)
+        model.load_state_dict(ckpt['state'])
+        acc, loss = test(model, 0)
+        train(model, 0)
+        print ('Acc: {}, Loss: {}'.format(acc, loss))
         #extract_weights_all(args, model, i)
 
 
 if __name__ == '__main__':
     args = load_args()
+    path = 'exp_models/hypercifar*'
+    if args.scratch:
+        path = '/scratch/eecs-share/ratzlafn/' + path
+    paths = glob(path)
     
-    if args.task == 'test':
-        if args.hyper:
-            path = 'exp_models/'
-        else:
-            path = args.mdir+'cifar/{}/'.format(args.net)
-        if args.scratch:
-            path = '/scratch/eecs-share/ratzlafn/HyperGAN/' + path
-        load_models(args, path)
-
-    elif args.task == 'train':
-        path = args.mdir+'cifar/{}/'.format(args.net)
-        if args.scratch:
-            path = '/scratch/eecs-share/ratzlafn/HyperGAN/' + path
-        
-        run_model_search(args, path)
-    else:
-        raise NotImplementedError
+    load_models(args)
+    #run_model_search(args)
 

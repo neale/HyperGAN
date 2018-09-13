@@ -13,40 +13,40 @@ import utils
 import models.mnist_clf as models
 import models.models_mnist as hyper
 import datagen
+import netdef
 
 
-mdir = '/data0/models/HyperGAN/models/'
-# Training settings
 def load_args():
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
-                        help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
-                        help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
-                        help='number of epochs to train (default: 10)')
-    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
-                        help='learning rate (default: 0.01)')
-    parser.add_argument('--net', type=str, default='small2', metavar='N',
-                        help='network to train [tiny, wide, wide7, fcn]')
-
+    parser.add_argument('--batch_size', type=int, default=64, metavar='N', help='')
+    parser.add_argument('--epochs', type=int, default=10, metavar='N', help='')
+    parser.add_argument('--lr', type=float, default=0.01, metavar='LR', help='')
+    parser.add_argument('--net', type=str, default='small2', metavar='N', help='')
+    parser.add_argument('--dataset', type=str, default='mnist', metavar='N', help='')
+    parser.add_argument('--mdir', type=str, default='models/', metavar='N', help='')
+    parser.add_argument('--scratch', type=bool, default=False, metavar='N', help='')
+    parser.add_argument('--ft', type=bool, default=False, metavar='N', help='')
+    parser.add_argument('--hyper', type=bool, default=False, metavar='N', help='')
+    parser.add_argument('--task', type=str, default='train', metavar='N', help='')
 
     args = parser.parse_args()
     return args
 
 
-def train(model, grad=False):
-    
+def train(args, model, grad=False):
+    if args.dataset =='mnist':
+        train_loader, _ = datagen.load_mnist(args)
+    elif args.dataset == 'fashion_mnist':
+        train_loader, _ = datagen.load_fashion_mnist(args)
     train_loss, train_acc = 0., 0.
-    train_loader, _ = datagen.load_mnist(None)
     criterion = nn.CrossEntropyLoss()
-    for child in list(model.children())[:2]:
-        print('removing {}'.format(child))
-        for param in child.parameters():
-            param.requires_grad = False
+    if args.ft:
+        for child in list(model.children())[:2]:
+            print('removing {}'.format(child))
+            for param in child.parameters():
+                param.requires_grad = False
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3)
-    #print (list(model.children())
-    for epoch in range(2):
+    for epoch in range(args.epochs):
         model.train()
         for batch_idx, (data, target) in enumerate(train_loader):
             data, target = data.cuda(), target.cuda()
@@ -59,9 +59,12 @@ def train(model, grad=False):
     return acc, loss
 
 
-def test(model, epoch=None, grad=False):
+def test(args, model, epoch=None, grad=False):
     model.eval()
-    _, test_loader = datagen.load_mnist(None)
+    if args.dataset =='mnist':
+        _, test_loader = datagen.load_mnist(args)
+    elif args.dataset == 'fashion_mnist':
+        _, test_loader = datagen.load_fashion_mnist(args)
     test_loss = 0
     correct = 0.
     criterion = nn.CrossEntropyLoss()
@@ -87,56 +90,7 @@ def test(model, epoch=None, grad=False):
     return acc, test_loss
 
 
-def test_hypernet_boosted(models, epoch=None, grad=False):
-    args = utils.load_default_args()
-    dist = utils.create_d(args.ze)
-    """ calc classifier loss """
-    netE, W1, W2, W3 = models
-    _, test_loader = datagen.load_mnist(args)
-    test_loss = 0
-    correct = 0.
-    args.boost = 1000
-    criterion = nn.CrossEntropyLoss()
-    args.batch_size = 2
-    for data, target in test_loader:
-        output = []
-        for i in range(args.boost):
-            z = utils.sample_d(dist, args.batch_size)
-            codes = netE(z)
-            l1 = W1(codes[0]).mean(0)
-            l2 = W2(codes[1]).mean(0)
-            l3 = W3(codes[2]).mean(0)
-            data, target = data.cuda(), target.cuda()
-            out = F.conv2d(data, l1, stride=1)
-            out = F.leaky_relu(out)
-            out = F.max_pool2d(out, 2, 2)
-            out = F.conv2d(out, l2, stride=1)
-            out = F.leaky_relu(out)
-            out = F.max_pool2d(out, 2, 2)
-            out = out.view(-1, 512)
-            out = F.linear(out, l3)
-            output.append(out)
-        output = torch.stack(output)
-        preds  = []
-        for i in range(output.shape[1]):
-            pred = output[:, i, :].data.max(1, keepdim=True)[1]
-            preds.append(torch.mode(pred, dim=0)[0])
-        pred = torch.stack(preds)
-        
-        c = pred.eq(target.data.view_as(pred)).long().cpu().sum()
-        correct += c
-    acc = (correct.float() / len(test_loader.dataset)).item()
-    print (acc)
-
-
-""" Extract weights of a loaded model """
-def extract_weights(model, id):
-    state = model.state_dict()
-    conv2 = state['conv1.0.weight']
-    params = conv2.cpu().numpy()
-    utils.plot_histogram(params, save=True)
-    print ('saving param size: ', params.shape)
-    np.save('./params/mnist/wide7/conv1/mnist_params_conv1_{}'.format(id), params)
+def adv_attack(args, model):
 
 
 def extract_weights_all(args, model, id):
@@ -244,46 +198,77 @@ def get_network(args):
 
 
 """ train and save models and their weights """
-def run_model_search(args):
+def run_model_search(args, path):
 
     for i in range(0, 500):
         print ("\nRunning MNIST Model {}...".format(i))
         model = get_network(args)
         print (model)
         model = w_init(model, 'normal')
-        acc = train(model)
+        acc, loss = train(model)
         #extract_weights_all(args, model, i)
-        #torch.save(model.state_dict(),
-        #        mdir+'mnist/{}/mnist_model_{}_{}.pt'.format(args.net, i, acc))
+        torch.save(model.state_dict(),
+                mdir+'mnist/{}/mnist_model_{}_{}.pt'.format(args.net, i, acc))
 
 
 """ Load a batch of networks to extract weights """
-def load_models(args):
+def load_models(args, path):
    
     model = get_network(args)
-    paths = glob(mdir+'mnist/{}/*.pt'.format(args.net))
+    paths = glob(path + '*.pt')
+    print (path)
+    paths = [path for path in paths if 'mnist' in path]
     natpaths = natsort.natsorted(paths)
-    ckpts = []
-    print (len(paths))
+    accs = []
+    losses = []
+    natpaths = [x for x in natpaths if 'hypermnist_mi_0.987465625' in x]
     for i, path in enumerate(natpaths):
         print ("loading model {}".format(path))
-        ckpt = torch.load(path)
-        ckpts.append(ckpt)
-        #model.load_state_dict(ckpt)
-        #test(model, 0)
-        #extract_weights_all(args, model, i)
+        if args.hyper:
+            hn = utils.load_hypernet(path)
+            for i in range(10):
+                samples = utils.sample_hypernet(hn)
+                print ('sampled a batches of {} networks'.format(len(samples[0])))
+                for i, sample in enumerate(zip(samples[0], samples[1], samples[2])):
+                    model = utils.weights_to_clf(sample, model, args.stat['layer_names'])
+                    acc, loss = test(args, model)
+                    print (i, ': Test Acc: {}, Loss: {}'.format(acc, loss))
+                    accs.append(acc)
+                    losses.append(loss)
+                    #acc, loss = train(args, model)
+                    #print ('Test1 Acc: {}, Loss: {}'.format(acc, loss))
+                    #extract_weights_all(args, model, i)
+            print(accs, losses)
+        else:
+            ckpt = torch.load(path)
+            state = ckpt['state_dict']
+            try:
+                model.load_state_dict()
+            except RuntimeError:
+                model_dict = model.state_dict()
+                filtered = {k:v for k, v in state.items() if k in model_dict}
+                model_dict.update(filtered)
+                model.load_state_dict(filtered)
 
-    for i in range(len(ckpts)):
-        for j in range(i, len(ckpts)):
-            model1 = ckpts[i]
-            model2 = ckpts[j]
-            measure_models(model1, model2, i)
+
 
 if __name__ == '__main__':
     args = load_args()
-    paths =  glob('exp_models/hypermnist*')
-    for path in paths:
-        models = utils.load_hypernet(path)
-        test_hypernet_boosted(models)
-    #run_model_search(args)
-    #load_models(args)
+    args.stat = netdef.nets()[args.net]
+    args.shapes = netdef.nets()[args.net]['shapes']
+    if args.task == 'test':
+        if args.scratch:
+            path = '/scratch/eecs-share/ratzlafn/HyperGAN/'
+            if args.hyper:
+                path = path + 'exp_models/'
+        else:
+            path = mdir+'mnist/{}/'.format(args.net)
+        load_models(args, path)
+    elif args.task =='train':
+        path = mdir+'mnist/{}/'.format(args.net)
+        if args.scratch:
+            path = '/scratch/eecs-share/ratzlafn/HyperGAN/' + path
+
+        run_model_search(args, path)
+    else:
+        raise NotImplementedError

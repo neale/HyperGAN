@@ -53,11 +53,11 @@ class CNet(nn.Module):
 class MedNet(nn.Module):
     def __init__(self):
         super(MedNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 16, 3)
-        self.conv2 = nn.Conv2d(16, 32, 3)
-        self.conv3 = nn.Conv2d(32, 32, 3)
-        self.fc1   = nn.Linear(128, 64)
-        self.fc2   = nn.Linear(64, 10)
+        self.conv1 = nn.Conv2d(3, 16, 3, bias=False)
+        self.conv2 = nn.Conv2d(16, 32, 3, bias=False)
+        self.conv3 = nn.Conv2d(32, 32, 3, bias=False)
+        self.fc1   = nn.Linear(128, 64, bias=False)
+        self.fc2   = nn.Linear(64, 10, bias=False)
 
     def forward(self, x):
         out = F.relu(self.conv1(x))
@@ -66,7 +66,6 @@ class MedNet(nn.Module):
         out = F.max_pool2d(out, 2)
         out = F.relu(self.conv3(out))
         out = F.max_pool2d(out, 2)
-        print (out.shape)
         out = out.view(out.size(0), -1)
         out = F.relu(self.fc1(out))
         out = self.fc2(out)
