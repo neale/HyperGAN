@@ -15,3 +15,4 @@ lib/
 include/
 exp_models/
 .*.sw* 
+*.sw* 
