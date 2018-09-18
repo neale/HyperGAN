@@ -63,7 +63,7 @@ def train(args):
     netD = models.DiscriminatorZ(args).cuda()
     print (netE, W1, W2, W3)
 
-    optimE = optim.Adam(netE.parameters(), lr=.0005, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimE = optim.Adam(netE.parameters(), lr=5e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW1 = optim.Adam(W1.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW2 = optim.Adam(W2.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW3 = optim.Adam(W3.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
@@ -82,7 +82,7 @@ def train(args):
     final = 100.
     e_batch_size = 1000
     if args.pretrain_e:
-        for j in range(1000):
+        for j in range(2000):
             x = utils.sample_d(x_dist, e_batch_size)
             z = utils.sample_d(z_dist, e_batch_size)
             codes = netE(x)
@@ -103,6 +103,7 @@ def train(args):
     print ('==> Begin Training')
     for _ in range(args.epochs):
         for batch_idx, (data, target) in enumerate(mnist_train):
+            print (data)
             ops.batch_zero_grad([netE, W1, W2, W3, netD])
             z = utils.sample_d(x_dist, args.batch_size)
             codes = netE(z)
@@ -164,7 +165,8 @@ def train(args):
                 if test_loss < best_test_loss or test_acc > best_test_acc:
                     print ('==> new best stats, saving')
                     #utils.save_clf(args, z_test, test_acc)
-                    #utils.save_hypernet(args, [netE, W1, W2, W3], test_acc)
+                    if test_acc > .95:
+                        utils.save_hypernet_mnist(args, [netE, W1, W2, W3], test_acc)
                     if test_loss < best_test_loss:
                         best_test_loss = test_loss
                         args.best_loss = test_loss

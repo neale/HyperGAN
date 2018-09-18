@@ -15,11 +15,9 @@ import torch.distributions.multivariate_normal as N
 import pprint
 
 import ops
-import plot
-import utils_xai as utils
+import utils
 import netdef
-import datagen_xai as datagen
-import matplotlib.pyplot as plt
+import datagen
 
 
 def load_args():
@@ -32,24 +30,13 @@ def load_args():
     parser.add_argument('-e', '--epochs', default=200000, type=int)
     parser.add_argument('-s', '--model', default='mednet', type=str)
     parser.add_argument('-d', '--dataset', default='cifar', type=str)
-    parser.add_argument('-l', '--layer', default='all', type=str)
-    parser.add_argument('-zd', '--depth', default=2, type=int, help='latent space depth')
-    parser.add_argument('--nfe', default=64, type=int)
-    parser.add_argument('--nfgc', default=64, type=int)
-    parser.add_argument('--nfgl', default=64, type=int)
-    parser.add_argument('--nfd', default=128, type=int)
-    parser.add_argument('--beta', default=1., type=float)
+    parser.add_argument('--beta', default=100., type=float)
     parser.add_argument('--resume', default=False, type=bool)
-    parser.add_argument('--comet', default=False, type=bool)
-    parser.add_argument('--gan', default=False, type=bool)
-    parser.add_argument('--use_wae', default=False, type=bool)
     parser.add_argument('--use_x', default=False, type=bool, help='sample from real layers')
-    parser.add_argument('--val_iters', default=10, type=int)
-    parser.add_argument('--load_e', default=False, type=bool)
     parser.add_argument('--pretrain_e', default=False, type=bool)
     parser.add_argument('--scratch', default=False, type=bool)
-
-
+    parser.add_argument('--exp', default='0', type=str)
+    parser.add_argument('--hidden', default=False, type=bool)
     args = parser.parse_args()
     return args
 
@@ -236,42 +223,10 @@ def sample_z_like(shape, scale=1., grad=True):
     return scale * z
  
 
-def load_cifar(args):
-    transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])  
-    transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])  
-    path = 'data/'
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/' + path
-    trainset = torchvision.datasets.CIFAR10(root=path, train=True,
-                        download=True,
-                        transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=32,
-                          shuffle=True,
-                          num_workers=2)
-    testset = torchvision.datasets.CIFAR10(root=path, train=False,
-                       download=True,
-                       transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=32,
-                         shuffle=False, num_workers=2)
-    return trainloader, testloader
-
-
 # hard code the two layer net
-def train_clf(args, Z, data, target, val=False):
+def train_clf(args, Z, data, target):
     """ calc classifier loss """
     data, target = data.cuda(), target.cuda()
-    def moments(x):
-        m = x.detach().view(x.shape[1], -1)
-        m.requires_grad = False
-        return (torch.mean(m, 1), torch.var(m, 1))
     x = F.relu(F.conv2d(data, Z[0]))
     x = F.max_pool2d(x, 2, 2)
     x = F.relu(F.conv2d(x, Z[1]))
@@ -281,13 +236,9 @@ def train_clf(args, Z, data, target, val=False):
     x = x.view(x.size(0), -1)
     x = F.relu(F.linear(x, Z[3]))
     x = F.linear(x, Z[4])
-    
     loss = F.cross_entropy(x, target)
-    correct = None
-    if val:
-        pred = x.data.max(1, keepdim=True)[1]
-        correct = pred.eq(target.data.view_as(pred)).long().cpu().sum()
-    # (clf_acc, clf_loss), (oa, ol) = ops.clf_loss(args, Z)
+    pred = x.data.max(1, keepdim=True)[1]
+    correct = pred.eq(target.data.view_as(pred)).long().cpu().sum()
     return (correct, loss)
 
 
@@ -338,7 +289,7 @@ def train(args):
     netD = DiscriminatorZ(args).cuda()
     print (netE, W1, W2, W3, W4, W5, netD)
 
-    optimE = optim.Adam(netE.parameters(), lr=0.005, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimE = optim.Adam(netE.parameters(), lr=5e-3, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW1 = optim.Adam(W1.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW2 = optim.Adam(W2.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW3 = optim.Adam(W3.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
@@ -348,42 +299,20 @@ def train(args):
     
     best_test_acc, best_test_loss = 0., np.inf
     args.best_loss, args.best_acc = best_test_loss, best_test_acc
-    if args.resume:
-        netE, optimE, stats = load_model(args, netE, optimE, 'single_code1')
-        W1, optimW1, stats = load_model(args, W1, optimrW1, 'single_code1')
-        W2, optimW2, stats = load_model(args, W2, optimW2, 'single_code1')
-        W3, optimW3, stats = load_model(args, W3, optimW3, 'single_code1')
-        W4, optimW3, stats = load_model(args, W4, optimW4, 'single_code1')
-        W4, optimW3, stats = load_model(args, W5, optimW5, 'single_code1')
-        netD, optimD, stats = load_model(args, netD, optimD, 'single_code1')
-        best_test_acc, best_test_loss = stats
-        print ('==> resuming models at ', stats)
-
-    cifar_train, cifar_test = load_cifar(args)
-    if args.use_x:
-        base_gen = datagen.load(args)
-        w1_gen = utils.inf_train_gen(base_gen[0])
-        w2_gen = utils.inf_train_gen(base_gen[1])
-        w3_gen = utils.inf_train_gen(base_gen[2])
-        w4_gen = utils.inf_train_gen(base_gen[3])
-        w5_gen = utils.inf_train_gen(base_gen[4])
-
+    
+    if args.hidden:
+        c_idx = [0, 1, 2, 3, 4]
+        cifar_train, cifar_test = datagen.load_cifar_hidden(args, c_idx)
+    else:
+        cifar_train, cifar_test = datagen.load_cifar(args)
     one = torch.FloatTensor([1]).cuda()
     mone = (one * -1).cuda()
-    if args.use_x:
-        X = sample_x(args, [w1_gen, w2_gen, w3_gen, w4_gen, w5_gen], 0)
-        X = list(map(lambda x: (x+1e-10).float(), X))
-
     print ("==> pretraining encoder")
     j = 0
     final = 100.
     e_batch_size = 1000
-    if args.load_e:
-        netE, optimE, _ = utils.load_model(args, netE, optimE, 'Encoder_cifar.pt')
-        print ('==> loading pretrained encoder')
     if args.pretrain_e:
-        for j in range(200):
-            #x = sample_x(args, [w1_gen, w2_gen, w3_gen, w4_gen, w5_gen], 0)
+        for j in range(2000):
             x = sample_z_like((e_batch_size, args.ze))
             z = sample_z_like((e_batch_size, args.z))
             codes = netE(x)
@@ -400,22 +329,18 @@ def train(args):
             if loss.item() < 0.1:
                 print ('Finished Pretraining Encoder')
                 break
-        utils.save_model(args, netE, optimE)
 
     print ('==> Begin Training')
-    for _ in range(1000):
+    for _ in range(args.epochs):
         for batch_idx, (data, target) in enumerate(cifar_train):
-
             batch_zero_grad([netE, W1, W2, W3, W4, W5, netD])
-            #netE.zero_grad(); W1.zero_grad(); W2.zero_grad()
-            #W3.zero_grad(); W4.zero_grad(); W5.zero_grad()
             z = sample_z_like((args.batch_size, args.ze,))
             codes = netE(z)
-            l1 = W1(codes[0]).mean(0)
-            l2 = W2(codes[1]).mean(0)
-            l3 = W3(codes[2]).mean(0)
-            l4 = W4(codes[3]).mean(0)
-            l5 = W5(codes[4]).mean(0)
+            l1 = W1(codes[0])
+            l2 = W2(codes[1])
+            l3 = W3(codes[2])
+            l4 = W4(codes[3])
+            l5 = W5(codes[4])
             
             # Z Adversary 
             free_params([netD])
@@ -434,9 +359,10 @@ def train(args):
             # Generator (Mean test)
             frozen_params([netD])
             free_params([netE, W1, W2, W3, W4, W5])
-            correct, loss = train_clf(args, [l1, l2, l3, l4, l5], data, target, val=True)
-            scaled_loss = (args.beta*loss) #+ z1_loss + z2_loss + z3_loss
-            scaled_loss.backward()
+            for (g1, g2, g3, g4, g5) in zip(l1, l2, l3, l4, l5):
+                correct, loss = train_clf(args, [g1, g2, g3, g4, g5], data, target)
+                scaled_loss = args.beta * loss
+                scaled_loss.backward(retain_graph=True)
                
             optimE.step(); optimW1.step(); optimW2.step()
             optimW3.step(); optimW4.step(); optimW5.step()
@@ -467,25 +393,20 @@ def train(args):
                 for i, (data, y) in enumerate(cifar_test):
                     z = sample_z_like((args.batch_size, args.ze,))
                     w1_code, w2_code, w3_code, w4_code, w5_code = netE(z)
-                    l1 = W1(w1_code).mean(0)
-                    l2 = W2(w2_code).mean(0)
-                    l3 = W3(w3_code).mean(0)
-                    l4 = W4(w4_code).mean(0)
-                    l5 = W5(w5_code).mean(0)
-                    min_loss_batch = 10.
-                    z_test = [l1, l2, l3, l4, l5]
-                    correct, loss = train_clf(args, [l1, l2, l3, l4, l5], data, y, val=True)
-                    if loss.item() < min_loss_batch:
-                        min_loss_batch = loss.item()
-                        z_test = [l1, l2, l3, l4, l5]
-                    test_acc += correct.item()
-                    test_loss += loss.item()
-                #y_acc, y_loss = utils.test_samples(args, z_test, train=True)
-                test_loss /= len(cifar_test.dataset)
-                test_acc /= len(cifar_test.dataset)
+                    l1 = W1(w1_code)
+                    l2 = W2(w2_code)
+                    l3 = W3(w3_code)
+                    l4 = W4(w4_code)
+                    l5 = W5(w5_code)
+                    for (g1, g2, g3, g4, g5) in zip(l1, l2, l3, l4, l5):
+                        correct, loss = train_clf(args, [g1, g2, g3, g4, g5], data, y)
+                        test_acc += correct.item()
+                        test_loss += loss.item()
+                test_loss /= len(cifar_test.dataset) * args.batch_size
+                test_acc /= len(cifar_test.dataset) * args.batch_size
                 print ('Test Accuracy: {}, Test Loss: {}'.format(test_acc, test_loss))
-                # print ('FC Accuracy: {}, FC Loss: {}'.format(y_acc, y_loss))
                 if test_loss < best_test_loss or test_acc > best_test_acc:
+                    utils.save_hypernet_cifar(args, [netE, W1, W2, W3, W4, W5, netD], test_acc)
                     print ('==> new best stats, saving')
                     if test_loss < best_test_loss:
                         best_test_loss = test_loss

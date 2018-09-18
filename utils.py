@@ -14,7 +14,6 @@ import numpy as np
 
 from glob import glob
 from scipy.misc import imsave
-#import models.models_mnist as hyper
 import torch.nn as nn
 import torch.nn.init as init
 import torch.distributions.multivariate_normal as N
@@ -134,9 +133,9 @@ def save_hypernet_cifar(args, models, acc):
             'W5': get_net_only(W5),
             'D': get_net_only(netD),
             }
-    path = 'exp_models/hypercifar_{}.pt'.format(acc)
+    path = 'exp_models/hypercifar_{}_{}.pt'.format(args.exp, acc)
     if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/' + path
+        path = '/scratch/eecs-share/ratzlafn/HyperGAN/' + path
     torch.save(hypernet_dict, path)
     print ('Hypernet saved to {}'.format(path))
 
@@ -145,6 +144,7 @@ def save_hypernet_cifar(args, models, acc):
 def load_hypernet(path, args=None):
     if args is None:
         args = load_default_args()
+    import models.models_mnist_small as hyper
     netE = hyper.Encoder(args).cuda()
     W1 = hyper.GeneratorW1(args).cuda()
     W2 = hyper.GeneratorW2(args).cuda()
@@ -166,7 +166,6 @@ def sample_hypernet(hypernet, args=None):
     l1 = W1(codes[0])
     l2 = W2(codes[1])
     l3 = W3(codes[2])
-    print (l1.shape, l2.shape, l3.shape)
     return l1, l2, l3
 
 
@@ -180,10 +179,10 @@ def weights_to_clf(weights, model, names):
         model.load_state_dict(state)
     return model
 
-"""
+
 def load_default_args():
     parser = argparse.ArgumentParser(description='default hyper-args')
-    parser.add_argument('--z', default=100, type=int, help='latent space width')
+    parser.add_argument('--z', default=128, type=int, help='latent space width')
     parser.add_argument('--ze', default=300, type=int, help='encoder dimension')
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--model', default='small2', type=str)
@@ -203,7 +202,6 @@ def load_default_args():
     parser.add_argument('--hyper', type=bool, default=False, metavar='N', help='')
     parser.add_argument('--task', type=str, default='train', metavar='N', help='')
 
- 
-    args = parser.parse_args()
+    args = parser.parse_args([])
     return args
-"""
+

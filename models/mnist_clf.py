@@ -151,6 +151,7 @@ class Small(nn.Module):
 class Small2(nn.Module):
     def __init__(self):
         super(Small2, self).__init__()
+        self.lnames = None
         self.conv1 = nn.Sequential(
                 nn.Conv2d(1, 32, 5, stride=1, bias=False),
                 nn.LeakyReLU(inplace=True),

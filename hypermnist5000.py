@@ -82,7 +82,7 @@ def train(args):
     final = 100.
     e_batch_size = 1000
     if args.pretrain_e:
-        for j in range(502):
+        for j in range(2000):
             x = utils.sample_d(x_dist, e_batch_size)
             z = utils.sample_d(z_dist, e_batch_size)
             codes = netE(x)
