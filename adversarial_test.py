@@ -77,7 +77,6 @@ def entropy(y, base=None):
         entropy -= i * log(i, base)
     return entropy
 
-
 # Basically I need to modify an attack so that it takes the
 # gradient under a new network for each iteration: IFGSM
 # One step attacks, do they transfer, no need to modify attacks here. 
@@ -139,7 +138,7 @@ def run_adv_hyper(args, hypernet):
     fgs = foolbox.attacks.FGSM(fmodel_base, criterion)
     _, test_loader = datagen.load_mnist(args)
     adv, y = [],  []
-    for eps in [0.01, 0.03, 0.08, 0.1, 0.3]:
+    for eps in [0.1]:
         total_adv = 0
         acc, _accs = [], []
         _vars, _stds, _ents = [], [], []
@@ -157,7 +156,7 @@ def run_adv_hyper(args, hypernet):
             padv = np.argmax(fmodel_base.predictions(
                 adv_batch[0].cpu().numpy()))
 
-            sample_adv, pred_labels = [], []
+            sample_adv, pred_labels, logits = [], [], []
             for _ in range(100):
                 model, fmodel = sample_fmodel(hypernet, arch) 
                 output = model(adv_batch)
@@ -167,12 +166,18 @@ def run_adv_hyper(args, hypernet):
                 n_adv_sample = len(target_batch)-correct.item()
                 sample_adv.append(n_adv_sample)
                 pred_labels.append(pred.view(pred.numel()))
+                logits.append(F.softmax(output, dim=1))
             p_labels = torch.stack(pred_labels).float().transpose(0, 1)
+            logits = torch.stack(logits)
             acc = torch.tensor(acc, dtype=torch.float)
             _accs.append(torch.mean(acc))
             _vars.append(p_labels.var(1).mean())
             _stds.append(p_labels.std(1).mean())
-            _ents.append(np.apply_along_axis(entropy, 1, p_labels))
+            #print (logits[0])
+            #ent = entropy(logits.detach())
+            #print (ent.shape)
+            #_ents.append(ent)
+            _ents.append(np.apply_along_axis(entropy, 1, p_labels.detach()))
             acc, adv, y = [], [], []
 
         plot_entropy(args, _ents, eps)

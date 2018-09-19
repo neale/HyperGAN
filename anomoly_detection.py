@@ -40,30 +40,22 @@ def load_args():
     return args
 
 
-def plot_empirical_cdf(args, a):
+def plot_empirical_cdf(args, a, n):
     a = np.asarray(a).reshape(-1)
-    np.save('/scratch/eecs-share/ratzlafn/{}_ent_data.npy'.format(args.dataset), a)
+    np.save('/scratch/eecs-share/ratzlafn/{}_{}_ent_data.npy'.format(args.dataset, n), a)
     ecdf = sm.distributions.ECDF(a)
     x = np.linspace(min(a), max(a))
     y = ecdf(x)
     plt.step(x, y)
     print ('ecdf with {} samples'.format(len(a)))
-    plt.savefig('/scratch/eecs-share/ratzlafn/{}_ent.png'.format(args.dataset))
+    plt.savefig('/scratch/eecs-share/ratzlafn/{}_{}_ent.png'.format(args.dataset, n))
 
 
-def entropy(y, base=None):
-    if len(y) <= 1:
-        return 0
-    value, counts = np.unique(y, return_counts=True)
-    probs = counts / len(y)
-    n_classes = np.count_nonzero(probs)
-    if n_classes <= 1:
-        return 0
-    entropy = 0.
-    base = e if base is None else base
-    for i in probs:
-        entropy -= i * log(i, base)
-    return entropy
+def entropy(x):
+    y = np.asarray(x.detach())
+    ax = 1 if y.ndim > 1 else 0
+    eps = 1e-10
+    return -np.sum((y + eps) * np.log((y+eps)), axis=ax)
 
 
 def sample_model(hypernet, arch):
@@ -75,7 +67,7 @@ def sample_model(hypernet, arch):
     return model
 
 
-def run_anomoly_omni(args, hypernet):
+def run_anomaly_omni(args, hypernet):
     arch = get_network(args)
     omni_loader = datagen.load_omniglot(args)
     _vars, _stds, _ents = [], [], []
@@ -88,7 +80,6 @@ def run_anomoly_omni(args, hypernet):
             output = model(data)
             pred = output.data.max(1, keepdim=True)[1]
             pred_labels.append(pred.view(pred.numel()))
-            print (pred_labels)
 
         p_labels = torch.stack(pred_labels).float().transpose(0, 1)
         _vars.append(p_labels.var(1).mean())
@@ -101,7 +92,7 @@ def run_anomoly_omni(args, hypernet):
         torch.tensor(_stds).mean()))
 
 
-def run_anomoly_notmnist(args, hypernet):
+def run_anomaly_notmnist_(args, hypernet):
     arch = get_network(args)
     train, test  = datagen.load_notmnist(args)
     _vars, _stds, _ents = [], [], []
@@ -109,7 +100,8 @@ def run_anomoly_notmnist(args, hypernet):
     for idx, (data, target) in enumerate(train):
         data, target = data.cuda(), target.cuda()
         pred_labels = []
-        for _ in range(1000):
+        logits = []
+        for _ in range(100):
             model = sample_model(hypernet, arch) 
             output = model(data)
             pred = output.data.max(1, keepdim=True)[1]
@@ -126,29 +118,83 @@ def run_anomoly_notmnist(args, hypernet):
         torch.tensor(_stds).mean()))
 
 
-def run_anomoly_mnist(args, hypernet):
+def run_anomaly_notmnist(args, hypernet):
+    arch = get_network(args)
+    train, test = datagen.load_notmnist(args)
+    _vars, _stds, _ents = [], [], []
+    model = sample_model(hypernet, arch) 
+    for n in [200]:
+        for idx, (data, target) in enumerate(test):
+            data, target = data.cuda(), target.cuda()
+            pred_labels = []
+            logits = []
+            for _ in range(n):
+                model = sample_model(hypernet, arch) 
+                output = model(data)
+                logits.append(F.softmax(output, dim=1))
+                #logits.append(output)
+            probs = torch.stack(logits)
+            probs = probs.mean(0).float()
+            ent = torch.from_numpy(entropy(probs)).mean()
+            print (ent)
+            _ents.append(ent)
+            
+        plot_empirical_cdf(args, _ents, n)
+        print ('mean E: {}, max E: {}, min E:{}'.format(
+            torch.tensor(_ents).mean(),
+            torch.tensor(_ents).max(),
+            torch.tensor(_ents).min()))
+
+
+def run_anomaly_mnist(args, hypernet):
     arch = get_network(args)
     train, test  = datagen.load_mnist(args)
     _vars, _stds, _ents = [], [], []
     model = sample_model(hypernet, arch) 
-    for idx, (data, target) in enumerate(test):
-        data, target = data.cuda(), target.cuda()
-        pred_labels = []
-        for _ in range(10):
-            model = sample_model(hypernet, arch) 
-            output = model(data)
-            pred = output.data.max(1, keepdim=True)[1]
-            pred_labels.append(pred.view(pred.numel()))
+    for n in [5, 10, 100]:
+        for idx, (data, target) in enumerate(test):
+            data, target = data.cuda(), target.cuda()
+            pred_labels = []
+            logits = []
+            for _ in range(n):
+                model = sample_model(hypernet, arch) 
+                output = model(data)
+                logits.append(output)
+            probs = torch.stack(logits).mean(0).float()
+            _ents.append(np.apply_along_axis(E, 1, probs.detach()))
+        
+        plot_empirical_cdf(args, _ents, n)
+        print ('mean E: {}, max E: {}, min E:{}'.format(
+            torch.tensor(_ents).mean(),
+            torch.tensor(_ents).max(),
+            torch.tensor(_ents).min()))
 
-        p_labels = torch.stack(pred_labels).float().transpose(0, 1)
-        _vars.append(p_labels.var(1).mean())
-        _stds.append(p_labels.std(1).mean())
-        _ents.append(np.apply_along_axis(entropy, 1, p_labels))
-    
-    plot_empirical_cdf(args, _ents)
-    print ('mean var: {}, max var: {}, min var:{}, std: {}'.format(
-        torch.tensor(_vars).mean(), torch.tensor(_vars).max(), torch.tensor(_vars).min(),
-        torch.tensor(_stds).mean()))
+
+
+def _run_anomaly_mnist(args, hypernet):
+    arch = get_network(args)
+    train, test  = datagen.load_mnist(args)
+    _vars, _stds, _ents = [], [], []
+    model = sample_model(hypernet, arch) 
+    for n in [5, 10, 100]:
+        for idx, (data, target) in enumerate(test):
+            data, target = data.cuda(), target.cuda()
+            pred_labels = []
+            for _ in range(n):
+                model = sample_model(hypernet, arch) 
+                output = model(data)
+                pred = output.data.max(1, keepdim=True)[1]
+                pred_labels.append(pred.view(pred.numel()))
+
+            p_labels = torch.stack(pred_labels).float().transpose(0, 1)
+            _vars.append(p_labels.var(1).mean())
+            _stds.append(p_labels.std(1).mean())
+            _ents.append(np.apply_along_axis(entropy, 1, p_labels))
+        
+        plot_empirical_cdf(args, _ents, n)
+        print ('mean var: {}, max var: {}, min var:{}, std: {}'.format(
+            torch.tensor(_vars).mean(), torch.tensor(_vars).max(), torch.tensor(_vars).min(),
+            torch.tensor(_stds).mean()))
 
 
 """ 
@@ -167,19 +213,7 @@ def w_init(model, dist='normal'):
 
 """ returns instance of specific model without weights """
 def get_network(args):
-    if args.net == 'net':
-        model = models.Net().cuda()
-    elif args.net == 'wide':
-        model = models.WideNet().cuda()
-    elif args.net == 'wide7':
-        model = models.WideNet7().cuda()
-    elif args.net == 'tiny':
-        model = models.TinyNet().cuda()
-    elif args.net == 'fcn':
-        model = models.FCN().cuda()
-    elif args.net == 'fcn2':
-        model = models.FCN2().cuda()
-    elif args.net == 'small':
+    if args.net == 'small':
         model = models.Small().cuda()
     elif args.net == 'small2':
         model = models.Small2().cuda()
@@ -194,11 +228,11 @@ def run_anomaly(args, path):
         path = [x for x in paths if 'hypermnist_0_0.984390625.pt' in x][0]
         hypernet = utils.load_hypernet(path)
         if args.dataset == 'omniglot':
-            run_anomoly_omni(args, hypernet)
+            run_anomaly_omni(args, hypernet)
         elif args.dataset == 'notmnist':
-            run_anomoly_notmnist(args, hypernet)
+            run_anomaly_notmnist(args, hypernet)
         elif args.dataset == 'mnist':
-            run_anomoly_mnist(args, hypernet)
+            run_anomaly_mnist(args, hypernet)
         else:
             raise NotImplementedError
     else:

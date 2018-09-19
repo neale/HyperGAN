@@ -36,17 +36,21 @@ def load_args():
 
 
 # hard code the two layer net
-def train_clf(args, Z, data, target):
+def train_clf(args, layers, data, target):
     """ calc classifier loss on target architecture """
-    data, target = data.cuda(), target.cuda()
-    out = F.conv2d(data, Z[0], stride=1)
-    out = F.leaky_relu(out)
-    out = F.max_pool2d(out, 2, 2)
-    out = F.conv2d(out, Z[1], stride=1)
-    out = F.leaky_relu(out)
-    out = F.max_pool2d(out, 2, 2)
-    out = out.view(-1, 512)
-    out = F.linear(out, Z[2])
+    linear_out = []
+    for Z in zip(*layers):
+        data, target = data.cuda(), target.cuda()
+        out = F.conv2d(data, Z[0], stride=1)
+        out = F.leaky_relu(out)
+        out = F.max_pool2d(out, 2, 2)
+        out = F.conv2d(out, Z[1], stride=1)
+        out = F.leaky_relu(out)
+        out = F.max_pool2d(out, 2, 2)
+        out = out.view(-1, 512)
+        out = F.linear(out, Z[2])
+        linear_out.append(out)
+    out = torch.stack(linear_out).mean(0)
     loss = F.cross_entropy(out, target)
     pred = out.data.max(1, keepdim=True)[1]
     correct = pred.eq(target.data.view_as(pred)).long().cpu().sum()
@@ -99,36 +103,25 @@ def train(args):
             if loss.item() < 0.1:
                 print ('Finished Pretraining Encoder')
                 break
-
+    ensemble = 100
     print ('==> Begin Training')
     for _ in range(args.epochs):
         for batch_idx, (data, target) in enumerate(mnist_train):
             ops.batch_zero_grad([netE, W1, W2, W3, netD])
-            z = utils.sample_d(x_dist, args.batch_size)
-            codes = netE(z)
-            l1 = W1(codes[0])
-            l2 = W2(codes[1])
-            l3 = W3(codes[2])
-            if args.use_d:
-                ops.free_params([netD])
-                ops.frozen_params([netE, W1, W2, W3])
-                for code in codes:
-                    noise = utils.sample_d(z_dist, args.batch_size)
-                    d_real = netD(noise)
-                    d_fake = netD(code)
-                    d_real_loss = -1 * torch.log((1-d_real).mean())
-                    d_fake_loss = -1 * torch.log(d_fake.mean())
-                    d_real_loss.backward(retain_graph=True)
-                    d_fake_loss.backward(retain_graph=True)
-                    d_loss = d_real_loss + d_fake_loss
-                optimD.step()
-                ops.frozen_params([netD])
-                ops.free_params([netE, W1, W2, W3])
-            
-            for (g1, g2, g3) in zip(l1, l2, l3):
-                correct, loss = train_clf(args, [g1, g2, g3], data, target)
-                scaled_loss = args.beta * loss
-                scaled_loss.backward(retain_graph=True)
+            en1, en2, en3 = [], [], []
+            for i in range(ensemble):
+                z = utils.sample_d(x_dist, args.batch_size)
+                codes = netE(z)
+                rand = np.random.randint(32)
+                en1.append(W1(codes[0])[rand])
+                en2.append(W2(codes[1])[rand])
+                en3.append(W3(codes[2])[rand])
+            g1 = torch.stack(en1)
+            g2 = torch.stack(en2)
+            g3 = torch.stack(en3)
+            correct, loss = train_clf(args, [g1, g2, g3], data, y)
+            scaled_loss = args.beta * loss
+            scaled_loss.backward()
             optimE.step()
             optimW1.step()
             optimW2.step()
@@ -157,22 +150,14 @@ def train(args):
                         en1.append(W1(codes[0])[rand])
                         en2.append(W2(codes[1])[rand])
                         en3.append(W3(codes[2])[rand])
-                    g1 = torch.stack(en1).mean(0)
-                    g2 = torch.stack(en2).mean(0)
-                    g3 = torch.stack(en3).mean(0)
+                    g1 = torch.stack(en1)
+                    g2 = torch.stack(en2)
+                    g3 = torch.stack(en3)
                     correct, loss = train_clf(args, [g1, g2, g3], data, y)
                     test_acc += correct.item()
                     test_loss += loss.item()
                 test_loss /= len(mnist_test.dataset)
                 test_acc /= len(mnist_test.dataset)
-                """
-                for (g1, g2, g3) in zip(l1, l2, l3):
-                        correct, loss = train_clf(args, [g1, g2, g3], data, y)
-                        test_acc += correct.item()
-                        test_loss += loss.item()
-                test_loss /= len(mnist_test.dataset) * args.batch_size
-                test_acc /= len(mnist_test.dataset) * args.batch_size
-                """
                 print ('Test Accuracy: {}, Test Loss: {}'.format(test_acc, test_loss))
                 if test_loss < best_test_loss or test_acc > best_test_acc:
                     print ('==> new best stats, saving')
