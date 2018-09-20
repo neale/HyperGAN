@@ -15,7 +15,6 @@ import models.mnist_clf as models
 import models.models_mnist_small as hyper
 import datagen
 import netdef
-import adversary as adv
 import foolbox
 import attacks
 import logging
@@ -170,7 +169,7 @@ def sample_func(hypernet, arch):
     return model
 
 
-def attack_batch(data, target, fmodel, eps, attack, hypernet, arch):
+def attack_batch_hyper(data, target, fmodel, eps, attack, hypernet, arch):
     missed = 0
     adv_preds, adv, y = [], [], []
     criterion = Misclassification()
@@ -205,6 +204,41 @@ def attack_batch(data, target, fmodel, eps, attack, hypernet, arch):
     return adv_batch, target_batch, adv_preds
 
 
+def attack_batch_ensemble(data, target, eps, attack, ensemble):
+    missed = 0
+    adv_preds, adv, y = [], [], []
+    criterion = Misclassification()
+    for i in range(len(target)):
+        input = unnormalize(data[i].cpu().numpy())
+        label = target[i]
+        px = np.argmax(ensemble[0].predictions(input)) # just get a prediction, w/e
+        if px != label.item():  # already misclassified
+            continue
+        adversarial = Adversarial(ensemble[0], criterion, input, label.item())
+        adversarial._set_ensemble(ensemble)
+        x_adv = attack(adversarial, label=None,
+                binary_search=False,
+                iterations=10,
+                stepsize=1,
+                epsilon=eps) # normalized
+        #epsilons=[eps]) # normalized
+        if x_adv is None:  # Failure
+            continue
+        adv_preds.append(np.argmax(ensemble[0].predictions(x_adv)))
+        px = np.argmax(ensemble[0].predictions(normalize(input)))
+        if (adv_preds[-1] == px) or (adv_preds[-1] == label.item()):
+            continue
+        adv.append(torch.from_numpy(x_adv))
+        y.append(target[i])
+
+    if adv == []:
+        adv_batch, target_batch = None, None
+    else:
+        adv_batch = torch.stack(adv).cuda()
+        target_batch = torch.stack(y).cuda()
+    return adv_batch, target_batch, adv_preds
+
+
 # we want to estimate performance of a sampled model on adversarials
 def run_adv_hyper(args, hypernet):
     arch = get_network(args)
@@ -213,12 +247,12 @@ def run_adv_hyper(args, hypernet):
     fgs = foolbox.attacks.HyperBIM(fmodel_base)
     _, test_loader = datagen.load_mnist(args)
     adv, y = [],  []
-    for eps in [0.3]:
+    for eps in [0.2, .3, 1.0]:
         total_adv = 0
         acc, _accs, _vars, _stds = [], [], [], []
         for idx, (data, target) in enumerate(test_loader):
             data, target = data.cuda(), target.cuda()
-            adv_batch, target_batch, _ = attack_batch(
+            adv_batch, target_batch, _ = attack_batch_hyper(
                     data, target, fmodel_base, eps, fgs, hypernet, arch)
             if adv_batch is None:
                 continue
@@ -229,9 +263,6 @@ def run_adv_hyper(args, hypernet):
             total_adv += n_adv
             padv = np.argmax(fmodel_base.predictions(
                 adv_batch[0].cpu().numpy()))
-            print (adv_batch.shape)
-            save_image(adv_batch, './image_{}.png'.format(eps))
-            sys.exit(0)
             sample_adv, pred_labels = [], []
             for _ in range(10):
                 model, fmodel = sample_fmodel(hypernet, arch) 
@@ -255,93 +286,69 @@ def run_adv_hyper(args, hypernet):
             torch.tensor(_stds).mean()))
 
 
-def run_adv_model(args, model):
-    model.eval()
-    fmodel = attacks.load_model(model)
+def ensemble_prediction(models, data):
+    logits = []
+    for model in models:
+        out = model(data)
+        logits.append(out)
+    logits = torch.stack(logits)
+    return logits
+
+
+class FusedNet(nn.Module):
+    def __init__(self, networks):
+        super(FusedNet, self).__init__()
+        self.networks = networks
+
+    def forward(self, x):
+        logits = []
+        for network in self.networks:
+            logits.append(network(x))
+        logits = torch.stack(logits).mean()
+        return logits
+
+
+def run_adv_model(args, models):
+    fmodels = [attacks.load_model(model) for model in models]
     criterion = Misclassification()
-    fgs = foolbox.attacks.BIM(fmodel)
+    fgs = foolbox.attacks.HyperBIM(fmodels[0])
     _, test_loader = datagen.load_mnist(args)
+
     adv, y, inter = [],  [], []
-    acc, accs = [], []
+    acc, _accs = [], []
     total_adv, total_correct = 0, 0
     missed = 0
     
-    for e in [0.01, 0.03, 0.08, 0.1, .3]:
+    for eps in [0.01, 0.03, 0.08, 0.1, .2, .3, 1]:
         total_adv = 0
+        _accs, _vars, _stds = [], [], []
+        pred_labels = []
         for data, target in test_loader:
             data, target = data.cuda(), target.cuda()
-            for i in range(32):
-                input = unnormalize(data[i].cpu().numpy())
-                x_adv = fgs(input, target[i].item(), binary_search=False,
-                        stepsize=1, epsilon=e) #normalized
-                px = np.argmax(fmodel.predictions(normalize(input))) #renormalized input
-                # Failure conditions
-                if (x_adv is None) or (px != target[i].item()):
-                    missed += 1
-                    continue
-                inter.append(np.argmax(fmodel.predictions(x_adv)))
-                assert (inter[-1] != px and inter[-1] != target[i].item())
-                adv.append(torch.from_numpy(x_adv))
-                y.append(target[i])
-            missed = 0
-            if adv == []:
+            adv_batch, target_batch, _ = attack_batch_ensemble(data, target, eps, fgs, fmodels)
+            if adv_batch is None:
                 continue
-            adv_batch, target_batch = torch.stack(adv).cuda(), torch.stack(y).cuda()
-            
-            output = model(adv_batch)
-            pred = output.data.max(1, keepdim=True)[1]
-            correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
-            n_adv = len(target_batch)-correct.item()
-            total_adv += n_adv
-            adv, y, inter = [], [], []
-        #    print ('generated {}/{} adversarials'.format(n_adv, 32))
-        print ('{}, total adv: {}/{}'.format(e, total_adv, len(test_loader.dataset)))
+            n_adv = 0.
+            acc, pred_labels = [], []
+            output = ensemble_prediction(models, adv_batch)
+            for i in range(5):
+                pred = output[i].data.max(1, keepdim=True)[1]
+                correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
+                n_adv += len(target_batch)-correct.item()
+                pred_labels.append(pred.view(pred.numel()))
 
+            ens_pred = output.mean(0).data.max(1, keepdim=True)[1]
+            ens_correct = ens_pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
+            total_adv += len(target_batch) - ens_correct.item()
 
-def measure_models(m1, m2, i):
-    m1_conv = m1['conv1.0.weight'].view(-1)
-    m2_conv = m2['conv1.0.weight'].view(-1)
-    m1_linear = m1['linear.weight']
-    m2_linear = m2['linear.weight']
-    
-    print (m1_conv.shape, m1_linear.mean(0).shape)
-    
-    l1_conv = (m1_conv - m2_conv).abs().sum()
-    l1_linear = (m1_linear - m2_linear).abs().sum()
-    print ("\nL1 Dist: {} - {}".format(l1_conv, l1_linear))
+            p_labels = torch.stack(pred_labels).float().transpose(0, 1)
+            _vars.append(p_labels.var(1).mean())
+            _stds.append(p_labels.std(1).mean())
+            acc, adv, y = [], [], []
 
-    l2_conv = np.linalg.norm(m1_conv - m2_conv)
-    l2_linear = np.linalg.norm(m1_linear - m2_linear)
-    print ("L2 Dist: {} - {}".format(l2_conv, l2_linear))
-
-    linf_conv = np.max((m1_conv-m2_conv).abs().cpu().numpy())
-    linf_linear = np.max((m1_linear-m2_linear).abs().cpu().numpy())
-    print ("Linf Dist: {} - {}".format(linf_conv, linf_linear))
-
-    cov_m1_m2_conv = np.cov(m1_conv, m2_conv)[0, 1]
-    cov_m1_m2_linear = np.cov(m1_linear, m2_linear)[0, 1]
-    print ("Cov m1-m2: {} - {}".format(cov_m1_m2_conv, cov_m1_m2_linear))
-
-    cov_m1_conv_linear = np.cov(m1_conv, m1_linear.mean(0))[0, 1]
-    cov_m2_conv_linear = np.cov(m2_conv, m2_linear.mean(0))[0, 1]
-    print ("Cov m1-conv-linear: {} - {}\n\n".format(cov_m1_conv_linear, cov_m2_conv_linear))
-   
-    return
-    utils.plot_histogram([m1_conv.view(-1).cpu().numpy(), m2_conv.view(-1).cpu().numpy()],
-            save=False)
-    utils.plot_histogram([m1_linear.view(-1).cpu().numpy(), m2_linear.view(-1).cpu().numpy()],
-            save=False)
-    
-    for l, name in [(m1_conv, 'conv1.0'), (m1_linear, 'linear')]:
-        params = l.cpu().numpy()
-        save_dir = 'params/mnist/{}/{}'.format(args.net, name)
-        if not os.path.exists(save_dir):
-            print ("making ", save_dir)
-            os.makedirs(save_dir)
-        path = '{}/{}_{}.npy'.format(save_dir, name, i)
-        print (i)
-        print ('saving param size: ', params.shape, 'to ', path)
-        np.save(path, params)
+        print ('Eps: {}, Adv: {}/{}, var: {}, std: {}'.format(eps,
+            total_adv, len(test_loader.dataset), torch.tensor(_vars).mean(),
+            torch.tensor(_stds).mean()))
 
 
 """ 
@@ -376,10 +383,17 @@ def adv_attack(args, path):
         hypernet = utils.load_hypernet(path)
         run_adv_hyper(args, hypernet)
     else:
-        model = get_network(args)
-        path = 'mnist_clf.pt'
-        model.load_state_dict(torch.load(path))
-        run_adv_model(args, model)
+        paths = ['mnist_model_small2_0.pt',
+                'mnist_model_small2_1.pt',
+                'mnist_model_small2_2.pt',
+                'mnist_model_small2_3.pt',
+                'mnist_model_small2_4.pt',]
+        models = []
+        for path in paths:
+            model = get_network(args)
+            model.load_state_dict(torch.load(path))
+            models.append(model.eval())
+        run_adv_model(args, models)
     
 
 """ train and save models and their weights """
@@ -446,7 +460,7 @@ if __name__ == '__main__':
         if args.hyper:
             path = path +'exp_models'
     else:
-        path = mdir+'mnist/{}/'.format(args.net)
+        path = './'
 
     if args.task == 'test':
         load_models(args, path)

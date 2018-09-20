@@ -15,7 +15,6 @@ import models.mnist_clf as models
 import models.models_mnist_small as hyper
 import datagen
 import netdef
-import adversary as adv
 from torchvision.utils import save_image
 
 def load_args():
@@ -58,7 +57,6 @@ def train(args, model, grad=False):
             loss.backward()
             optimizer.step()
         acc, loss = test(args, model, epoch)
-    run_adv_attack_v(args, model)
     return acc, loss
 
 
@@ -91,64 +89,6 @@ def test(args, model, epoch=None, grad=False):
             test_loss, correct, len(test_loader.dataset),
             100. * correct / len(test_loader.dataset)))
     return acc, test_loss
-
-# Basically I need to modify an attack so that it takes the
-# gradient under a new network for each iteration: IFGSM
-# One step attacks, do they transfer, no need to modify attacks here. 
-def run_adv_attack(args, hypernet):
-    arch = get_network(args)
-    w_batch = utils.sample_hypernet(hypernet)
-    rand = np.random.randint(32)
-    sample_w = (w_batch[0][rand], w_batch[1][rand], w_batch[2][rand])
-    model = utils.weights_to_clf(sample_w, arch, args.stat['layer_names'])
-    criterion = nn.CrossEntropyLoss()
-    attack = adv.Attack(model, criterion)
-    _, test_loader = datagen.load_mnist(args)
-    acc = []
-    for data, target in test_loader:
-        data, target = data.cuda(), target.cuda()
-        x_adv, h_adv, y = attack.iter_fgs(data, target)
-        output = model(data)
-        pred = output.data.max(1, keepdim=True)[1]
-        correct = pred.eq(target.data.view_as(pred)).long().cpu().sum()
-        print ('data target: {}/{}'.format(correct, len(target)))
-        
-        output = model(x_adv)
-        pred = output.data.max(1, keepdim=True)[1]
-        correct = pred.eq(target.data.view_as(pred)).long().cpu().sum()
-        print ('data adv: {}/{}'.format(correct, len(target)))
-
-        for _ in range(100):
-            w_batch = utils.sample_hypernet(hypernet)
-            rand = np.random.randint(32)
-            sample_w = (w_batch[0][rand], w_batch[1][rand], w_batch[2][rand])
-            model = utils.weights_to_clf(sample_w, arch, args.stat['layer_names'])
-            output = model(x_adv)
-            pred = output.data.max(1, keepdim=True)[1]
-            correct = pred.eq(target.data.view_as(pred)).long().cpu().sum()
-            acc.append(correct.item()/len(target))
-
-        acc = torch.tensor(acc).mean()
-        print ('mean adv: {}/{}'.format(correct,len(target)))
-        sys.exit(0)
-
-def run_adv_attack_v(args, model):
-    criterion = nn.CrossEntropyLoss()
-    attack = adv.Attack(model, criterion)
-    _, test_loader = datagen.load_mnist(args)
-    for data, target in test_loader:
-        data, target = data.cuda(), target.cuda()
-        x_adv, h_adv, y = attack.fgs(data, target)
-        output = model(data)
-        pred = output.data.max(1, keepdim=True)[1]
-        correct = pred.eq(target.data.view_as(pred)).long().cpu().sum()
-        print ('data target: {}/{}'.format(correct,len(target)))
-        #print (x_adv, h_adv, y)
-        output = model(x_adv)
-        pred = output.data.max(1, keepdim=True)[1]
-        correct = pred.eq(target.data.view_as(pred)).long().cpu().sum()
-        print ('adv target: {}/{}'.format(correct,len(target)))
-        sys.exit(0)
 
 
 def extract_weights_all(args, model, id):
@@ -234,19 +174,7 @@ def w_init(model, dist='normal'):
 
 """ returns instance of specific model without weights """
 def get_network(args):
-    if args.net == 'net':
-        model = models.Net().cuda()
-    elif args.net == 'wide':
-        model = models.WideNet().cuda()
-    elif args.net == 'wide7':
-        model = models.WideNet7().cuda()
-    elif args.net == 'tiny':
-        model = models.TinyNet().cuda()
-    elif args.net == 'fcn':
-        model = models.FCN().cuda()
-    elif args.net == 'fcn2':
-        model = models.FCN2().cuda()
-    elif args.net == 'small':
+    if args.net == 'small':
         model = models.Small().cuda()
     elif args.net == 'small2':
         model = models.Small2().cuda()
@@ -255,12 +183,6 @@ def get_network(args):
     return model
 
 
-def adv_attack(args, path):
-    paths = glob(path + '/*.pt')
-    path = [x for x in paths if 'hypermnist_0_0.976675.pt' in x][0]
-    hypernet = utils.load_hypernet(path)
-    run_adv_attack(args, hypernet)
-    
 """ train and save models and their weights """
 def run_model_search(args, path):
 
@@ -271,8 +193,7 @@ def run_model_search(args, path):
         model = w_init(model, 'normal')
         acc, loss = train(args, model)
         #extract_weights_all(args, model, i)
-        torch.save(model.state_dict(),
-                mdir+'mnist/{}/mnist_model_{}_{}.pt'.format(args.net, i, acc))
+        torch.save(model.state_dict(), './mnist_model_{}_{}.pt'.format(args.net, i, acc))
 
 
 """ Load a batch of networks to extract weights """
@@ -325,7 +246,7 @@ if __name__ == '__main__':
         if args.hyper:
             path = path +'exp_models'
     else:
-        path = mdir+'mnist/{}/'.format(args.net)
+        path = './'
 
     if args.task == 'test':
         load_models(args, path)

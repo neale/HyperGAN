@@ -9,7 +9,7 @@ from glob import glob
 from math import e, log
 import matplotlib.pyplot as plt
 import matplotlib.mlab as mlab
-import statsmodels.api as sm
+from scipy.stats import mode
 
 import torch
 import torch.nn as nn
@@ -32,6 +32,7 @@ logging.disable(logging.CRITICAL);
 import warnings
 warnings.filterwarnings("ignore")
 
+
 def load_args():
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
     parser.add_argument('--batch_size', type=int, default=64, metavar='N', help='')
@@ -52,7 +53,7 @@ def load_args():
 def plot_entropy(args, a, eps):
     a = np.concatenate(a).ravel()
     print (a)
-    np.save('/scratch/eecs-share/ratzlafn/{}_ent_FGSM_{}.npy'.format(args.dataset, eps), a)
+    np.save('./{}_ent_FGSM_{}.npy'.format(args.dataset, eps), a)
     n, bins, patches = plt.hist(a, 50, normed=1, facecolor='green', alpha=0.75)
     mu = np.mean(a)
     sigma = np.std(a)
@@ -60,7 +61,7 @@ def plot_entropy(args, a, eps):
     l = plt.plot(bins, y, 'r--', linewidth=1)
     plt.title('predictive entropy with eps: '.format(eps))
     print ('ecdf with {} samples'.format(len(a)))
-    plt.savefig('/scratch/eecs-share/ratzlafn/{}_fgsm_ent_{}.png'.format(args.dataset, eps))
+    plt.savefig('./{}_fgsm_ent_{}.png'.format(args.dataset, eps))
 
 
 def entropy(y, base=None):
@@ -102,6 +103,19 @@ def normalize(x):
     return x
 
 
+class FusedNet(nn.Module):
+    def __init__(self, networks):
+        super(FusedNet, self).__init__()
+        self.networks = networks
+
+    def forward(self, x):
+        logits = []
+        for network in self.networks:
+            logits.append(network(x))
+        logits = torch.stack(logits).mean(0)
+        return logits
+
+
 def sample_adv_batch(data, target, fmodel, eps, attack):
     missed = 0
     inter, adv, y = [], [], []
@@ -109,12 +123,11 @@ def sample_adv_batch(data, target, fmodel, eps, attack):
     for i in range(32):
         input = unnormalize(data[i].cpu().numpy())
         x_adv = attack(input, target[i].item(),
-                #binary_search=False,
-                #stepsize=2,
-                #epsilon=eps) #normalized
-                epsilons=[eps]) #normalized
+                binary_search=False,
+                stepsize=1,
+                epsilon=eps) #normalized
+                #epsilons=[eps]) #normalized
         px = np.argmax(fmodel.predictions(normalize(input))) #renormalized input
-        # Failure conditions
         if (x_adv is None) or (px != target[i].item()):
             missed += 1
             continue
@@ -135,59 +148,65 @@ def run_adv_hyper(args, hypernet):
     arch = get_network(args)
     model_base, fmodel_base = sample_fmodel(hypernet, arch)
     criterion = Misclassification()
-    fgs = foolbox.attacks.FGSM(fmodel_base, criterion)
+    fgs = foolbox.attacks.BIM(fmodel_base, criterion)
     _, test_loader = datagen.load_mnist(args)
     adv, y = [],  []
-    for eps in [0.1]:
-        total_adv = 0
-        acc, _accs = [], []
-        _vars, _stds, _ents = [], [], []
-        for idx, (data, target) in enumerate(test_loader):
-            data, target = data.cuda(), target.cuda()
-            adv_batch, target_batch, _ = sample_adv_batch(
-                    data, target, fmodel_base, eps, fgs)
-            if adv_batch is None:
-                continue
-            output = model_base(adv_batch)
-            pred = output.data.max(1, keepdim=True)[1]
-            correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
-            n_adv = len(target_batch) - correct.item()
-            total_adv += n_adv
-            padv = np.argmax(fmodel_base.predictions(
-                adv_batch[0].cpu().numpy()))
-
-            sample_adv, pred_labels, logits = [], [], []
-            for _ in range(100):
-                model, fmodel = sample_fmodel(hypernet, arch) 
-                output = model(adv_batch)
+    for n_models in [10, 100, 1000]:
+        print ('ensemble of {}'.format(n_models))
+        for eps in [0.01, 0.03, 0.08, 0.1, 0.3, 0.5, 1.0]:
+            total_adv = 0
+            acc, _accs = [], []
+            _vars, _stds, _ents = [], [], []
+            for idx, (data, target) in enumerate(test_loader):
+                data, target = data.cuda(), target.cuda()
+                adv_batch, target_batch, _ = sample_adv_batch(
+                        data, target, fmodel_base, eps, fgs)
+                if adv_batch is None:
+                    continue
+                output = model_base(adv_batch)
                 pred = output.data.max(1, keepdim=True)[1]
                 correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
-                acc.append(correct.item())
-                n_adv_sample = len(target_batch)-correct.item()
-                sample_adv.append(n_adv_sample)
-                pred_labels.append(pred.view(pred.numel()))
-                logits.append(F.softmax(output, dim=1))
-            p_labels = torch.stack(pred_labels).float().transpose(0, 1)
-            logits = torch.stack(logits)
-            acc = torch.tensor(acc, dtype=torch.float)
-            _accs.append(torch.mean(acc))
-            _vars.append(p_labels.var(1).mean())
-            _stds.append(p_labels.std(1).mean())
-            #print (logits[0])
-            #ent = entropy(logits.detach())
-            #print (ent.shape)
-            #_ents.append(ent)
-            _ents.append(np.apply_along_axis(entropy, 1, p_labels.detach()))
-            acc, adv, y = [], [], []
+                n_adv = len(target_batch) - correct.item()
+                total_adv += n_adv
+                padv = np.argmax(fmodel_base.predictions(
+                    adv_batch[0].cpu().numpy()))
 
-        plot_entropy(args, _ents, eps)
-        print ('Eps: {}, Adv: {}/{}, var: {}, std: {}'.format(eps,
-            total_adv, len(test_loader.dataset), torch.tensor(_vars).mean(),
-            torch.tensor(_stds).mean()))
+                sample_adv, pred_labels, logits = [], [], []
+                for _ in range(n_models):
+                    model, fmodel = sample_fmodel(hypernet, arch) 
+                    output = model(adv_batch)
+                    pred = output.data.max(1, keepdim=True)[1]
+                    correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
+                    acc.append(correct.item())
+                    n_adv_sample = len(target_batch)-correct.item()
+                    sample_adv.append(n_adv_sample)
+                    pred_labels.append(pred.view(pred.numel()))
+                    logits.append(F.softmax(output, dim=1))
+                
+                p_labels = torch.stack(pred_labels).float().transpose(0, 1)
+                if len(p_labels) > 1:
+                    p_labels_cols = p_labels.transpose(0, 1)
+                    modes = mode(p_labels_cols)[0][0]
+                    mode_chart = []
+                    for i in range(len(modes)):
+                        v = len(np.setdiff1d(p_labels[i], modes[i], assume_unique=False))
+                        mode_chart.append(v)
+                    _vars.append(torch.tensor(mode_chart).float().mean())
+                    _ents.append(np.apply_along_axis(entropy, 1, p_labels.detach()).mean())
+                acc = torch.tensor(acc, dtype=torch.float)
+                _accs.append(torch.mean(acc))
+                acc, adv, y = [], [], []
+
+            # plot_entropy(args, _ents, eps)
+            print ('Eps: {}, Adv: {}/{}, var: {}, std: {}'.format(eps,
+                total_adv, len(test_loader.dataset), torch.tensor(_vars).mean(),
+                torch.tensor(_ents).mean()))
 
 
-def run_adv_model(args, model):
-    model.eval()
+def run_adv_model(args, models):
+    for model in models:
+        model.eval()
+    model = FusedNet(models)
     fmodel = attacks.load_model(model)
     criterion = Misclassification()
     fgs = foolbox.attacks.BIM(fmodel)
@@ -197,14 +216,15 @@ def run_adv_model(args, model):
     total_adv, total_correct = 0, 0
     missed = 0
     
-    for e in [0.01, 0.03, 0.08, 0.1, .3]:
+    for eps in [.01, .03, .08, .1, .3, .5, 1.0]:
         total_adv = 0
+        _vars, _ents = [], []
         for data, target in test_loader:
             data, target = data.cuda(), target.cuda()
             for i in range(32):
                 input = unnormalize(data[i].cpu().numpy())
                 x_adv = fgs(input, target[i].item(), binary_search=False,
-                        stepsize=1, epsilon=e) #normalized
+                        stepsize=1, epsilon=eps) #normalized
                 px = np.argmax(fmodel.predictions(normalize(input))) #renormalized input
                 # Failure conditions
                 if (x_adv is None) or (px != target[i].item()):
@@ -218,15 +238,36 @@ def run_adv_model(args, model):
             if adv == []:
                 continue
             adv_batch, target_batch = torch.stack(adv).cuda(), torch.stack(y).cuda()
-            
             output = model(adv_batch)
             pred = output.data.max(1, keepdim=True)[1]
             correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
             n_adv = len(target_batch)-correct.item()
+            out5, pred_labels = [], []
+            
+            for i in range(5):
+                out = models[i](adv_batch)
+                pred = out.data.max(1, keepdim=True)[1]
+                pred_labels.append(pred.view(pred.numel()))
+
+            p_labels = torch.stack(pred_labels).float().transpose(0, 1)
+            if len(p_labels) > 1:
+                p_labels_cols = p_labels.transpose(0, 1)
+                print (p_labels)
+                modes = mode(p_labels_cols)[0][0]
+                print ('modes: ', modes)
+                mode_chart = []
+                for i in range(len(modes)):
+                    v = len(np.setdiff1d(p_labels[i], modes[i], assume_unique=False))
+                    mode_chart.append(v)
+                #print ('var: {}'.format(torch.tensor(mode_chart).float().mean()))
+                _vars.append(torch.tensor(mode_chart).float().mean())
+                _ents.append(np.apply_along_axis(entropy, 1, p_labels.detach()).mean())
+
             total_adv += n_adv
             adv, y, inter = [], [], []
-        #    print ('generated {}/{} adversarials'.format(n_adv, 32))
-        print ('{}, total adv: {}/{}'.format(e, total_adv, len(test_loader.dataset)))
+        print ('Eps: {}, Adv: {}/{}, var: {}, std: {}'.format(eps,
+            total_adv, len(test_loader.dataset), torch.tensor(_vars).mean(),
+            torch.tensor(_ents).mean()))
 
 
 
@@ -262,10 +303,17 @@ def adv_attack(args, path):
         hypernet = utils.load_hypernet(path)
         run_adv_hyper(args, hypernet)
     else:
-        model = get_network(args)
-        path = 'mnist_clf.pt'
-        model.load_state_dict(torch.load(path))
-        run_adv_model(args, model)
+        paths = ['mnist_model_small2_0.pt',
+                 'mnist_model_small2_1.pt',
+                 'mnist_model_small2_2.pt',
+                 'mnist_model_small2_3.pt',
+                 'mnist_model_small2_4.pt']
+        models = []
+        for path in paths:
+            model = get_network(args)
+            model.load_state_dict(torch.load(path))
+            models.append(model.eval())
+        run_adv_model(args, models)
     
 
 if __name__ == '__main__':
@@ -277,7 +325,7 @@ if __name__ == '__main__':
         if args.hyper:
             path = path +'exp_models'
     else:
-        path = mdir+'mnist/{}/'.format(args.net)
+        path = './'
 
     if args.task == 'adv':
         adv_attack(args, path)
