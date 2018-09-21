@@ -103,22 +103,16 @@ def train(args):
             if loss.item() < 0.1:
                 print ('Finished Pretraining Encoder')
                 break
-    ensemble = 100
+    ensemble = 5
     print ('==> Begin Training')
     for _ in range(args.epochs):
         for batch_idx, (data, target) in enumerate(mnist_train):
             ops.batch_zero_grad([netE, W1, W2, W3, netD])
-            en1, en2, en3 = [], [], []
-            for i in range(ensemble):
-                z = utils.sample_d(x_dist, args.batch_size)
-                codes = netE(z)
-                rand = np.random.randint(32)
-                en1.append(W1(codes[0])[rand])
-                en2.append(W2(codes[1])[rand])
-                en3.append(W3(codes[2])[rand])
-            g1 = torch.stack(en1)
-            g2 = torch.stack(en2)
-            g3 = torch.stack(en3)
+            z = utils.sample_d(x_dist, args.batch_size)
+            codes = netE(z)
+            g1 = W1(codes[0]).mean(0)
+            g2 = W2(codes[1]).mean(0)
+            g3 = W3(codes[2]).mean(0)
             correct, loss = train_clf(args, [g1, g2, g3], data, y)
             scaled_loss = args.beta * loss
             scaled_loss.backward()
@@ -140,19 +134,12 @@ def train(args):
             if batch_idx > 1 and batch_idx % 199 == 0:
                 test_acc = 0.
                 test_loss = 0.
-                ensemble = 5
                 for i, (data, y) in enumerate(mnist_test):
-                    en1, en2, en3 = [], [], []
-                    for i in range(ensemble):
-                        z = utils.sample_d(x_dist, args.batch_size)
-                        codes = netE(z)
-                        rand = np.random.randint(32)
-                        en1.append(W1(codes[0])[rand])
-                        en2.append(W2(codes[1])[rand])
-                        en3.append(W3(codes[2])[rand])
-                    g1 = torch.stack(en1)
-                    g2 = torch.stack(en2)
-                    g3 = torch.stack(en3)
+                    z = utils.sample_d(x_dist, args.batch_size)
+                    codes = netE(z)
+                    g1 = W1(codes[0]).mean(0)
+                    g2 = W2(codes[1]).mean(0)
+                    g3 = W3(codes[2]).mean(0)
                     correct, loss = train_clf(args, [g1, g2, g3], data, y)
                     test_acc += correct.item()
                     test_loss += loss.item()

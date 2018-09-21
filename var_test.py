@@ -10,6 +10,7 @@ from math import e, log
 import matplotlib.pyplot as plt
 import matplotlib.mlab as mlab
 from scipy.stats import mode
+from scipy.stats import entropy
 
 import torch
 import torch.nn as nn
@@ -49,21 +50,6 @@ def load_args():
     args = parser.parse_args()
     return args
 
-
-
-def entropy(y, base=None):
-    if len(y) <= 1:
-        return 0
-    value, counts = np.unique(y, return_counts=True)
-    probs = counts / len(y)
-    n_classes = np.count_nonzero(probs)
-    if n_classes <= 1:
-        return 0
-    entropy = 0.
-    base = e if base is None else base
-    for i in probs:
-        entropy -= i * log(i, base)
-    return entropy
 
 # Basically I need to modify an attack so that it takes the
 # gradient under a new network for each iteration: IFGSM
@@ -142,15 +128,16 @@ def run_adv_hyper(args, hypernet):
     #fmodel_base = attacks.load_model(FusedNet(models))
     model_base, fmodel_base = sample_fmodel(args, hypernet, arch)
     criterion = Misclassification()
-    fgs = foolbox.attacks.BIM(fmodel_base, criterion)
+    fgs = foolbox.attacks.FGSM(fmodel_base, criterion)
     _, test_loader = datagen.load_mnist(args)
     adv, y = [],  []
-    for n_models in [1000]:
+    for n_models in [10, 100, 800]:
         print ('ensemble of {}'.format(n_models))
-        for eps in [0.1, 0.3, 0.5, 1.0]:
+        for eps in [0.01, 0.03, 0.08, 0.1, 0.3, 0.5, 1.0]:
             total_adv = 0
             acc, _accs = [], []
-            _soft, _logs, _vars = [], [], []
+            _soft, _logs, _vars, _ents = [], [], [], []
+            _soft_adv, _logs_adv, _vars_adv, _ents_adv = [], [], [], []
             for idx, (data, target) in enumerate(test_loader):
                 data, target = data.cuda(), target.cuda()
                 adv_batch, target_batch, _ = sample_adv_batch(
@@ -163,22 +150,53 @@ def run_adv_hyper(args, hypernet):
                 correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
                 n_adv = len(target_batch) - correct.item()
                 total_adv += n_adv
+                
+                #dis = []
                 soft_out, pred_out, logits = [], [], []
+                soft_out_adv, pred_out_adv, logits_adv = [], [], []
                 for n in range(n_models):
                     model, fmodel = sample_fmodel(args, hypernet, arch) 
-                    output = model(adv_batch).cpu()
+                    output = model(data)
                     soft_out.append(F.softmax(output, dim=1))
-                    pred_out.append(output.data.max(1, keepdim=True)[1])
-                    logits.append(output)
+                    #pred_out.append(output.data.max(1, keepdim=True)[1])
+                    #logits.append(output)
+
+                    output = model(adv_batch)
+                    soft_out_adv.append(F.softmax(output, dim=1))
+                    #pred_out_adv.append(output.data.max(1, keepdim=True)[1])
+                    #logits_adv.append(output)
+                    ## correction graph
+                    #pred = output.data.max(1, keepdim=True)[1]
+                    #correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
+                    #c = len(pred_out) - correct.item()
+                    #print ('got {} / {} / {}'.format(correct.item(), len(target_batch), 32))
+                    #dis.append(correct.item()/n_adv)
+                    ##
+                #np.save('/scratch/eecs-share/ratzlafn/acc.npy', np.array(dis))
+                #sys.exit(0)    
+                    
                 softs = torch.stack(soft_out).float()
-                preds = torch.stack(pred_out).float()
-                logs = torch.stack(logits).float()
+                #preds = torch.stack(pred_out).float()
+                #logs = torch.stack(logits).float()
+                softs_adv = torch.stack(soft_out_adv).float()
+                #preds_adv = torch.stack(pred_out_adv).float()
+                #logs_adv = torch.stack(logits_adv).float()
+                #np.save('/scratch/eecs-share/ratzlafn/softs.npy', softs.detach().cpu().numpy())
+                #np.save('/scratch/eecs-share/ratzlafn/logs.npy', logs.detach().cpu().numpy())
+                #sys.exit(0)
                 # Measure variance of individual logits across models. 
                 # HyperGAN ensemble has lower variance across 10 class predictions 
                 # But a single logit has high variance acorss models
                 units_softmax = softs.var(0).mean().item() # var across models across images
-                units_logprob = logs.var(0).mean().item()
+                ent = float(entropy(softs.mean(0).detach()).mean())
+                #units_logprob = logs.var(0).mean().item()
                 ensemble_var = softs.mean(0).var(1).mean().item()  
+
+                units_softmax_adv = softs_adv.var(0).mean().item() # var across models - images
+                ent_adv = float(entropy(softs_adv.mean(0).detach()).mean())
+        
+                #units_logprob_adv = logs_adv.var(0).mean().item()
+                ensemble_var_adv = softs_adv.mean(0).var(1).mean().item()
                 """ Core Debug """
                 # print ('softmax var: ', units_softmax)
                 # print ('logprob var: ', units_logprob)
@@ -186,21 +204,34 @@ def run_adv_hyper(args, hypernet):
 
                 # build lists
                 _soft.append(units_softmax)
-                _logs.append(units_logprob)
+                #_logs.append(units_logprob)
                 _vars.append(ensemble_var)
+                _ents.append(ent)
+                _soft_adv.append(units_softmax_adv)
+                #_logs_adv.append(units_logprob_adv)
+                _vars_adv.append(ensemble_var_adv)
+                _ents_adv.append(ent_adv)
 
-                if idx % 50 == 0:
-                    print ('Eps: {},  Iter: {}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
-                        eps, idx,
-                        torch.tensor(_logs).mean(),
+                if idx > 5:
+                    print ('NAT: Log var: -, Softmax var: {}, Ent: {}, Ens var: {}'.format(
+                        #torch.tensor(_logs).mean(),
                         torch.tensor(_soft).mean(),
+                        torch.tensor(_ents).mean(),
                         torch.tensor(_vars).mean()))
-
+                    print ('ADV Eps: {}, Log var: -, Softmax var: {}, Ent: {}, Ens var: {}'.format(
+                        eps,
+                        #torch.tensor(_logs_adv).mean(),
+                        torch.tensor(_soft_adv).mean(),
+                        torch.tensor(_ents_adv).mean(),
+                        torch.tensor(_vars_adv).mean()))
+                    break;
+            """
             print ('[Final] - Eps: {}, Adv: {}/{}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
                  eps, total_adv, len(test_loader.dataset), 
                  torch.tensor(_logs).mean(),
                  torch.tensor(_soft).mean(),
                  torch.tensor(_vars).mean()))
+            """
 
              
 def run_adv_model(args, models):
@@ -211,13 +242,16 @@ def run_adv_model(args, models):
     criterion = Misclassification()
     fgs = foolbox.attacks.BIM(fmodel)
     _, test_loader = datagen.load_mnist(args)
-    for eps in [.08, .1, .3, .5, 1.0]:
+    for eps in [0.01, 0.03, 0.08, .1, .3, .5, 1.0]:
         total_adv = 0
-        _soft, _logs, _vars = [], [], []
+        _soft, _logs, _vars, _ents = [], [], [], []
+        _soft_adv, _logs_adv, _vars_adv, _ents_adv = [], [], [], []
         for idx, (data, target) in enumerate(test_loader):
             data, target = data.cuda(), target.cuda()
             adv_batch, target_batch, _ = sample_adv_batch(data, target, fmodel, eps, fgs)
             
+            if adv_batch is None:
+                continue
             # get intial prediction of ensemble, sure
             output = model(adv_batch)
             pred = output.data.max(1, keepdim=True)[1]
@@ -226,21 +260,31 @@ def run_adv_model(args, models):
             
             # set up to sample from individual models
             soft_out, pred_out, logits = [], [], []
+            soft_out_adv, pred_out_adv, logits_adv = [], [], []
             for i in range(len(models)):
-                output = models[i](adv_batch)
+                output = models[i](data)
                 soft_out.append(F.softmax(output, dim=1))
                 pred_out.append(output.data.max(1, keepdim=True)[1])
                 logits.append(output)
+                
+                output = model(adv_batch)
+                soft_out_adv.append(F.softmax(output, dim=1))
+
             softs = torch.stack(soft_out).float()
             preds = torch.stack(pred_out).float()
             logs = torch.stack(logits).float()
-            
+            softs_adv = torch.stack(soft_out_adv).float()
             # Measure variance of individual logits across models. 
             # HyperGAN ensemble has lower variance across 10 class predictions 
             # But a single logit has high variance acorss models
             units_softmax = softs.var(0).mean().item() # var across models across images
             units_logprob = logs.var(0).mean().item()
             ensemble_var = softs.mean(0).var(1).mean().item()  
+            ent = float(entropy(softs.mean(0).detach()).mean())
+
+            units_softmax_adv = softs_adv.var(0).mean().item() # var across models - images
+            ent_adv = float(entropy(softs_adv.mean(0).detach()).mean())
+            ensemble_var_adv = softs_adv.mean(0).var(1).mean().item()
             
             """ Core Debug """
             # print ('softmax var: ', units_softmax)
@@ -251,19 +295,35 @@ def run_adv_model(args, models):
             _soft.append(units_softmax)
             _logs.append(units_logprob)
             _vars.append(ensemble_var)
+            _ents.append(ent)
+            
+            _soft_adv.append(units_softmax_adv)
+            _vars_adv.append(ensemble_var_adv)
+            _ents_adv.append(ent_adv)
+
+
             total_adv += n_adv
-            if idx % 200 == 0:
-                print ('Eps: {},  Iter: {}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
-                    eps, idx,
+            if idx % 10 == 0 and idx > 1:
+                print ('NAT: Log var: {}, Softmax var: {}, Ent var: {}, Ens var: {}'.format(
+                    eps,
                     torch.tensor(_logs).mean(),
                     torch.tensor(_soft).mean(),
+                    torch.tensor(_ents).mean(),
                     torch.tensor(_vars).mean()))
+                print ('ADV: Eps: {}, Ent var: {}, Softmax var: {}, Ens var: {}'.format(
+                    eps,
+                    torch.tensor(_ents_adv).mean(),
+                    torch.tensor(_soft_adv).mean(),
+                    torch.tensor(_vars_adv).mean()))
 
+                break
+        """
         print ('[Final] - Eps: {}, Adv: {}/{}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
             eps, total_adv, len(test_loader.dataset), 
             torch.tensor(_logs).mean(),
             torch.tensor(_soft).mean(),
             torch.tensor(_vars).mean()))
+        """
 
 
 
@@ -304,11 +364,12 @@ def adv_attack(args, path):
                  'mnist_model_small2_2.pt',
                  'mnist_model_small2_3.pt',
                  'mnist_model_small2_4.pt',
-                 'mnist_model_small2_5.pt',
-                 'mnist_model_small2_6.pt',
-                 'mnist_model_small2_7.pt',
-                 'mnist_model_small2_8.pt',
-                 'mnist_model_small2_9.pt']
+                 #'mnist_model_small2_5.pt',
+                 #'mnist_model_small2_6.pt',
+                 #'mnist_model_small2_7.pt',
+                 #'mnist_model_small2_8.pt',
+                 #'mnist_model_small2_9.pt'
+                 ]
         models = []
         for path in paths:
             model = get_network(args)
