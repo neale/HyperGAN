@@ -130,21 +130,27 @@ def sample_adv_batch(data, target, fmodel, eps, attack):
     return adv_batch, target_batch, inter
 
 
+
 # we want to estimate performance of a sampled model on adversarials
 def run_adv_hyper(args, hypernet):
     arch = get_network(args)
-    model_base, fmodel_base = sample_fmodel(args, hypernet, arch)
+    models, fmodels = [], []
+    for i in range(10):
+        model_base, fmodel_base = sample_fmodel(args, hypernet, arch)
+        models.append(model_base)
+        fmodels.append(fmodel_base)
+        
+    fmodel_base = attacks.load_model(FusedNet(models))
     criterion = Misclassification()
     fgs = foolbox.attacks.BIM(fmodel_base, criterion)
     _, test_loader = datagen.load_mnist(args)
     adv, y = [],  []
-    for n_models in [10, 100, 1000]:
+    for n_models in [10, 100, 900]:
         print ('ensemble of {}'.format(n_models))
         for eps in [0.08, 0.1, 0.3, 0.5, 1.0]:
             total_adv = 0
             acc, _accs = [], []
-            _softs, _logs, _vars = [], [], []
-
+            _soft, _logs, _vars = [], [], []
             for idx, (data, target) in enumerate(test_loader):
                 data, target = data.cuda(), target.cuda()
                 adv_batch, target_batch, _ = sample_adv_batch(
@@ -157,7 +163,7 @@ def run_adv_hyper(args, hypernet):
                 correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
                 n_adv = len(target_batch) - correct.item()
                 total_adv += n_adv
-                
+                continue
                 soft_out, pred_out, logits = [], [], []
                 for _ in range(n_models):
                     model, fmodel = sample_fmodel(args, hypernet, arch) 
@@ -175,28 +181,27 @@ def run_adv_hyper(args, hypernet):
                 units_logprob = logs.var(0).mean().item()
                 ensemble_var = softs.mean(0).var(1).mean().item()  
                 """ Core Debug """
-                print ('softmax var: ', units_softmax)
-                print ('logprob var: ', units_logprob)
-                print ('ensemble var: ', ensemble_var)
+                # print ('softmax var: ', units_softmax)
+                # print ('logprob var: ', units_logprob)
+                # print ('ensemble var: ', ensemble_var)
 
                 # build lists
                 _soft.append(units_softmax)
                 _logs.append(units_logprob)
                 _vars.append(ensemble_var)
-                total_adv += n_adv
 
-             if idx % 200 == 0:
-                 print ('Eps: {},  Iter: {}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
-                     eps, idx,
-                     torch.tensor(_logs).mean(),
-                     torch.tensor(_soft).mean(),
-                     torch.tensor(_vars).mean()))
+                if idx % 200 == 0:
+                    print ('Eps: {},  Iter: {}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
+                        eps, idx,
+                        torch.tensor(_logs).mean(),
+                        torch.tensor(_soft).mean(),
+                        torch.tensor(_vars).mean()))
 
-         print ('[Final] - Eps: {}, Adv: {}/{}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
-             eps, total_adv, len(test_loader.dataset), 
-             torch.tensor(_logs).mean(),
-             torch.tensor(_soft).mean(),
-             torch.tensor(_vars).mean()))
+            print ('[Final] - Eps: {}, Adv: {}/{}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
+                 eps, total_adv, len(test_loader.dataset), 
+                 torch.tensor(_logs).mean(),
+                 torch.tensor(_soft).mean(),
+                 torch.tensor(_vars).mean()))
 
              
 def run_adv_model(args, models):
@@ -255,12 +260,11 @@ def run_adv_model(args, models):
                     torch.tensor(_soft).mean(),
                     torch.tensor(_vars).mean()))
 
-        if idx % 200 == 0:
-            print ('[Final] - Eps: {}, Adv: {}/{}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
-                eps, total_adv, len(test_loader.dataset), 
-                torch.tensor(_logs).mean(),
-                torch.tensor(_soft).mean(),
-                torch.tensor(_vars).mean()))
+        print ('[Final] - Eps: {}, Adv: {}/{}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
+            eps, total_adv, len(test_loader.dataset), 
+            torch.tensor(_logs).mean(),
+            torch.tensor(_soft).mean(),
+            torch.tensor(_vars).mean()))
 
 
 

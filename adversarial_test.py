@@ -291,11 +291,12 @@ def adv_attack(args, path):
                  'mnist_model_small2_2.pt',
                  'mnist_model_small2_3.pt',
                  'mnist_model_small2_4.pt',
-                 'mnist_model_small2_5.pt',
-                 'mnist_model_small2_6.pt',
-                 'mnist_model_small2_7.pt',
-                 'mnist_model_small2_8.pt',
-                 'mnist_model_small2_9.pt']
+                 #'mnist_model_small2_5.pt',
+                 #'mnist_model_small2_6.pt',
+                 #'mnist_model_small2_7.pt',
+                 #'mnist_model_small2_8.pt',
+                 #'mnist_model_small2_9.pt'
+                 ]
         models = []
         for path in paths:
             model = get_network(args)
