@@ -135,19 +135,19 @@ def sample_adv_batch(data, target, fmodel, eps, attack):
 def run_adv_hyper(args, hypernet):
     arch = get_network(args)
     models, fmodels = [], []
-    for i in range(10):
-        model_base, fmodel_base = sample_fmodel(args, hypernet, arch)
-        models.append(model_base)
-        fmodels.append(fmodel_base)
-        
-    fmodel_base = attacks.load_model(FusedNet(models))
+    #for i in range(10):
+    #    model_base, fmodel_base = sample_fmodel(args, hypernet, arch)
+    #    models.append(model_base)
+    #    fmodels.append(fmodel_base)   
+    #fmodel_base = attacks.load_model(FusedNet(models))
+    model_base, fmodel_base = sample_fmodel(args, hypernet, arch)
     criterion = Misclassification()
     fgs = foolbox.attacks.BIM(fmodel_base, criterion)
     _, test_loader = datagen.load_mnist(args)
     adv, y = [],  []
-    for n_models in [10, 100, 900]:
+    for n_models in [1000]:
         print ('ensemble of {}'.format(n_models))
-        for eps in [0.08, 0.1, 0.3, 0.5, 1.0]:
+        for eps in [0.1, 0.3, 0.5, 1.0]:
             total_adv = 0
             acc, _accs = [], []
             _soft, _logs, _vars = [], [], []
@@ -163,11 +163,10 @@ def run_adv_hyper(args, hypernet):
                 correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
                 n_adv = len(target_batch) - correct.item()
                 total_adv += n_adv
-                continue
                 soft_out, pred_out, logits = [], [], []
-                for _ in range(n_models):
+                for n in range(n_models):
                     model, fmodel = sample_fmodel(args, hypernet, arch) 
-                    output = model(adv_batch)
+                    output = model(adv_batch).cpu()
                     soft_out.append(F.softmax(output, dim=1))
                     pred_out.append(output.data.max(1, keepdim=True)[1])
                     logits.append(output)
@@ -190,7 +189,7 @@ def run_adv_hyper(args, hypernet):
                 _logs.append(units_logprob)
                 _vars.append(ensemble_var)
 
-                if idx % 200 == 0:
+                if idx % 50 == 0:
                     print ('Eps: {},  Iter: {}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
                         eps, idx,
                         torch.tensor(_logs).mean(),
