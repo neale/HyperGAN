@@ -186,7 +186,7 @@ def get_network(args):
 """ train and save models and their weights """
 def run_model_search(args, path):
 
-    for i in range(0, 500):
+    for i in range(6, 10):
         print ("\nRunning MNIST Model {}...".format(i))
         model = get_network(args)
         print (model)

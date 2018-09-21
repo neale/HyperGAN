@@ -140,56 +140,65 @@ def run_adv_hyper(args, hypernet):
     adv, y = [],  []
     for n_models in [10, 100, 1000]:
         print ('ensemble of {}'.format(n_models))
-        for eps in [0.01, 0.03, 0.08, 0.1, 0.3, 0.5, 1.0]:
+        for eps in [0.08, 0.1, 0.3, 0.5, 1.0]:
             total_adv = 0
             acc, _accs = [], []
-            _vars, _stds, _ents = [], [], []
+            _softs, _logs, _vars = [], [], []
+
             for idx, (data, target) in enumerate(test_loader):
                 data, target = data.cuda(), target.cuda()
                 adv_batch, target_batch, _ = sample_adv_batch(
                         data, target, fmodel_base, eps, fgs)
                 if adv_batch is None:
                     continue
+                # get base hypermodel output, I guess
                 output = model_base(adv_batch)
                 pred = output.data.max(1, keepdim=True)[1]
                 correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
                 n_adv = len(target_batch) - correct.item()
                 total_adv += n_adv
-                padv = np.argmax(fmodel_base.predictions(
-                    adv_batch[0].cpu().numpy()))
-
-                sample_adv, pred_labels, logits = [], [], []
+                
+                soft_out, pred_out, logits = [], [], []
                 for _ in range(n_models):
                     model, fmodel = sample_fmodel(args, hypernet, arch) 
                     output = model(adv_batch)
-                    pred = output.data.max(1, keepdim=True)[1]
-                    correct = pred.eq(target_batch.data.view_as(pred)).long().cpu().sum()
-                    acc.append(correct.item())
-                    n_adv_sample = len(target_batch)-correct.item()
-                    sample_adv.append(n_adv_sample)
-                    pred_labels.append(pred.view(pred.numel()))
-                    logits.append(F.softmax(output, dim=1))
-                
-                p_labels = torch.stack(pred_labels).float().transpose(0, 1)
-                if len(p_labels) > 1:
-                    p_labels_cols = p_labels.transpose(0, 1)
-                    modes = mode(p_labels_cols)[0][0]
-                    mode_chart = []
-                    for i in range(len(modes)):
-                        v = len(np.setdiff1d(p_labels[i], modes[i], assume_unique=False))
-                        mode_chart.append(v)
-                    _vars.append(torch.tensor(mode_chart).float().mean())
-                    _ents.append(np.apply_along_axis(entropy, 1, p_labels.detach()).mean())
-                acc = torch.tensor(acc, dtype=torch.float)
-                _accs.append(torch.mean(acc))
-                acc, adv, y = [], [], []
+                    soft_out.append(F.softmax(output, dim=1))
+                    pred_out.append(output.data.max(1, keepdim=True)[1])
+                    logits.append(output)
+                softs = torch.stack(soft_out).float()
+                preds = torch.stack(pred_out).float()
+                logs = torch.stack(logits).float()
+                # Measure variance of individual logits across models. 
+                # HyperGAN ensemble has lower variance across 10 class predictions 
+                # But a single logit has high variance acorss models
+                units_softmax = softs.var(0).mean().item() # var across models across images
+                units_logprob = logs.var(0).mean().item()
+                ensemble_var = softs.mean(0).var(1).mean().item()  
+                """ Core Debug """
+                print ('softmax var: ', units_softmax)
+                print ('logprob var: ', units_logprob)
+                print ('ensemble var: ', ensemble_var)
 
-            # plot_entropy(args, _ents, eps)
-            print ('Eps: {}, Adv: {}/{}, var: {}, std: {}'.format(eps,
-                total_adv, len(test_loader.dataset), torch.tensor(_vars).mean(),
-                torch.tensor(_ents).mean()))
+                # build lists
+                _soft.append(units_softmax)
+                _logs.append(units_logprob)
+                _vars.append(ensemble_var)
+                total_adv += n_adv
 
+             if idx % 200 == 0:
+                 print ('Eps: {},  Iter: {}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
+                     eps, idx,
+                     torch.tensor(_logs).mean(),
+                     torch.tensor(_soft).mean(),
+                     torch.tensor(_vars).mean()))
 
+         print ('[Final] - Eps: {}, Adv: {}/{}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
+             eps, total_adv, len(test_loader.dataset), 
+             torch.tensor(_logs).mean(),
+             torch.tensor(_soft).mean(),
+             torch.tensor(_vars).mean()))
+
+             
 def run_adv_model(args, models):
     for model in models:
         model.eval()
@@ -218,9 +227,9 @@ def run_adv_model(args, models):
                 soft_out.append(F.softmax(output, dim=1))
                 pred_out.append(output.data.max(1, keepdim=True)[1])
                 logits.append(output)
-            softs = torch.stack(soft_out)
+            softs = torch.stack(soft_out).float()
             preds = torch.stack(pred_out).float()
-            logs = torch.stack(logits)
+            logs = torch.stack(logits).float()
             
             # Measure variance of individual logits across models. 
             # HyperGAN ensemble has lower variance across 10 class predictions 
@@ -246,11 +255,12 @@ def run_adv_model(args, models):
                     torch.tensor(_soft).mean(),
                     torch.tensor(_vars).mean()))
 
-        print ('[Final] - Eps: {}, Adv: {}/{}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
-            eps, total_adv, len(test_loader.dataset), 
-            torch.tensor(_logs).mean(),
-            torch.tensor(_soft).mean(),
-            torch.tensor(_vars).mean()))
+        if idx % 200 == 0:
+            print ('[Final] - Eps: {}, Adv: {}/{}, Log var: {}, Softmax var: {}, Ens var: {}'.format(
+                eps, total_adv, len(test_loader.dataset), 
+                torch.tensor(_logs).mean(),
+                torch.tensor(_soft).mean(),
+                torch.tensor(_vars).mean()))
 
 
 

@@ -1,2 +1,0 @@
--r requirements-dev.txt
-mypy >= 0.511
