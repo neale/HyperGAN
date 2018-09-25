@@ -28,7 +28,6 @@ def pretrain_loss(encoded, noise):
     mean_z = torch.mean(noise, dim=0, keepdim=True)
     mean_e = torch.mean(encoded, dim=0, keepdim=True)
     mean_loss = F.mse_loss(mean_z, mean_e)
-
     cov_z = torch.matmul((noise-mean_z).transpose(0, 1), noise-mean_z)
     cov_z /= 999
     cov_e = torch.matmul((encoded-mean_e).transpose(0, 1), encoded-mean_e)

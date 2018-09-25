@@ -112,6 +112,7 @@ def extract_weights_all(args, model, id):
         np.save('./params/mnist/{}/{}/{}_{}'.format(args.net, l, l, id), params)
 
 
+
 def measure_models(m1, m2, i):
     m1_conv = m1['conv1.0.weight'].view(-1)
     m2_conv = m2['conv1.0.weight'].view(-1)
@@ -178,6 +179,8 @@ def get_network(args):
         model = models.Small().cuda()
     elif args.net == 'small2':
         model = models.Small2().cuda()
+    elif args.net == 'mc':
+        model = models.Small2_MC().cuda()
     else:
         raise NotImplementedError
     return model
@@ -186,14 +189,14 @@ def get_network(args):
 """ train and save models and their weights """
 def run_model_search(args, path):
 
-    for i in range(6, 10):
+    for i in range(0, 5):
         print ("\nRunning MNIST Model {}...".format(i))
         model = get_network(args)
         print (model)
         model = w_init(model, 'normal')
         acc, loss = train(args, model)
         #extract_weights_all(args, model, i)
-        torch.save(model.state_dict(), './mnist_model_{}_{}.pt'.format(args.net, i, acc))
+        torch.save(model.state_dict(), './mc_model_{}_{}.pt'.format(args.net, i, acc))
 
 
 """ Load a batch of networks to extract weights """

@@ -17,7 +17,7 @@ class Encoder(nn.Module):
         self.linear3 = nn.Linear(128, self.z*2)
         self.bn1 = nn.BatchNorm1d(256)
         self.bn2 = nn.BatchNorm1d(128)
-        self.relu = nn.ELU(inplace=True)
+        self.relu = nn.ReLU(inplace=True)
 
     
     def forward(self, x):
@@ -26,51 +26,51 @@ class Encoder(nn.Module):
         x = self.relu(self.bn1(self.linear1(x)))
         x = self.relu(self.bn2(self.linear2(x)))
         x = self.linear3(x)
-        x = x.view(-1, 3, self.z)
+        x = x.view(-1, 2, self.z)
         w1 = x[:, 0]
         w2 = x[:, 1]
         #print ('E out: ', x.shape)
-        return w1, w2, w3
+        return w1, w2
 
 """ Linear (20 x 200) """
 class GeneratorW1(nn.Module):
     def __init__(self, args):
-        super(GeneratorW3, self).__init__()
+        super(GeneratorW1, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.name = 'GeneratorW3'
+        self.name = 'GeneratorW1'
         self.linear1 = nn.Linear(self.z, 256)
-        self.linear2 = nn.Linear(256, 4000)
+        self.linear2 = nn.Linear(256, 200)
         self.bn1 = nn.BatchNorm1d(256)
-        self.relu = nn.ELU(inplace=True)
+        self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
-        #print ('W3 in : ', x.shape)
+        #print ('W1 in : ', x.shape)
         x = self.relu(self.bn1(self.linear1(x)))
         x = self.linear2(x)
-        x = x.view(-1, 20, 200)
-        #print ('W3 out: ', x.shape)
+        x = x.view(-1, 200, 1)
+        #print ('W1 out: ', x.shape)
         return x
 
 
-""" Linear (20 x 1) """
-class GeneratorW1(nn.Module):
+""" Linear (200 x 1) """
+class GeneratorW2(nn.Module):
     def __init__(self, args):
-        super(GeneratorW3, self).__init__()
+        super(GeneratorW2, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.name = 'GeneratorW3'
+        self.name = 'GeneratorW2'
         self.linear1 = nn.Linear(self.z, 128)
-        self.linear2 = nn.Linear(128, 20)
+        self.linear2 = nn.Linear(128, 200)
         self.bn1 = nn.BatchNorm1d(128)
-        self.relu = nn.ELU(inplace=True)
+        self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
-        #print ('W3 in : ', x.shape)
+        #print ('W2 in : ', x.shape)
         x = self.relu(self.bn1(self.linear1(x)))
         x = self.linear2(x)
-        x = x.view(-1, 1, 20)
-        #print ('W3 out: ', x.shape)
+        x = x.view(-1, 1, 200)
+        #print ('W2 out: ', x.shape)
         return x
 
 

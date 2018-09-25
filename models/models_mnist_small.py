@@ -33,6 +33,35 @@ class Encoder(nn.Module):
         return w1, w2, w3
 
 
+class Encoderz(nn.Module):
+    def __init__(self, args):
+        super(Encoderz, self).__init__()
+        for k, v in vars(args).items():
+            setattr(self, k, v)
+        self.name = 'Encoderz'
+        self.linear1 = nn.Linear(self.ze, 512)
+        self.linear2 = nn.Linear(512, 512)
+        self.linear3 = nn.Linear(512, self.z*3)
+        self.bn1 = nn.BatchNorm1d(512)
+        self.bn2 = nn.BatchNorm1d(512)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        #print ('E in: ', x.shape)
+        x = x.view(-1, self.ze) #flatten filter size
+        x = torch.zeros_like(x).normal_(0, 0.01) + x
+        x = self.relu(self.bn1(self.linear1(x)))
+        x = self.relu(self.bn2(self.linear2(x)))
+        x = self.linear3(x)
+        x = x.view(-1, 3, self.z)
+        w1 = x[:, 0]
+        w2 = x[:, 1]
+        w3 = x[:, 2]
+        #print ('E out: ', x.shape)
+        return w1, w2, w3
+
+
+
 class GeneratorW1(nn.Module):
     def __init__(self, args):
         super(GeneratorW1, self).__init__()
@@ -100,10 +129,10 @@ class DiscriminatorZ(nn.Module):
             setattr(self, k, v)
         
         self.name = 'DiscriminatorZ'
-        self.linear1 = nn.Linear(self.z, 1024)
-        self.linear2 = nn.Linear(1024, 1024)
-        self.linear3 = nn.Linear(1024, 1)
-        self.relu = nn.ELU(inplace=True)
+        self.linear1 = nn.Linear(self.z, 512)
+        self.linear2 = nn.Linear(512, 512)
+        self.linear3 = nn.Linear(512, 1)
+        self.relu = nn.ReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -112,6 +141,5 @@ class DiscriminatorZ(nn.Module):
         x = self.relu(self.linear1(x))
         x = self.relu(self.linear2(x))
         x = self.linear3(x)
-        x = self.sigmoid(x)
         # print ('Dz out: ', x.shape)
         return x

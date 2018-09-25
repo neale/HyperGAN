@@ -140,6 +140,20 @@ def save_hypernet_cifar(args, models, acc):
     print ('Hypernet saved to {}'.format(path))
 
 
+def save_hypernet_regression(args, models, mse):
+    netE, W1, W2 = models
+    hypernet_dict = {
+            'E':  get_net_only(netE),
+            'W1': get_net_only(W1),
+            'W2': get_net_only(W2),
+            }
+    path = 'exp_models/hypertoy{}_{}.pt'.format(args.exp, mse)
+    if args.scratch:
+        path = '/scratch/eecs-share/ratzlafn/HyperGAN/' + path
+    torch.save(hypernet_dict, path)
+    print ('Hypernet saved to {}'.format(path))
+
+
 """ hard coded for mnist experiment dont use generally """
 def load_hypernet(path, args=None):
     if args is None:
@@ -160,8 +174,9 @@ def load_hypernet(path, args=None):
 
 def sample_hypernet(hypernet, args=None):
     netE, W1, W2, W3 = hypernet
-    x_dist = create_d(300)
-    z = sample_d(x_dist, 32)
+    #x_dist = create_d(300)
+    #z = sample_d(x_dist, 32)
+    z = torch.randn(32, 300).cuda()
     codes = netE(z)
     l1 = W1(codes[0])
     l2 = W2(codes[1])
