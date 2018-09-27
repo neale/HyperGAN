@@ -141,5 +141,6 @@ class DiscriminatorZ(nn.Module):
         x = self.relu(self.linear1(x))
         x = self.relu(self.linear2(x))
         x = self.linear3(x)
+        x = self.sigmoid(x)
         # print ('Dz out: ', x.shape)
         return x

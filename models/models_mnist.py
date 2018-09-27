@@ -115,17 +115,19 @@ class DiscriminatorZ(nn.Module):
             setattr(self, k, v)
         
         self.name = 'DiscriminatorZ'
-        self.linear1 = nn.Linear(self.z, 1024)
-        self.linear2 = nn.Linear(1024, 1024)
-        self.linear3 = nn.Linear(1024, 1)
+        self.linear1 = nn.Linear(self.z, 256)
+        self.linear2 = nn.Linear(256, 256)
+        self.linear3 = nn.Linear(256, 1)
+        self.bn1 = nn.BatchNorm1d(256)
+        self.bn2 = nn.BatchNorm1d(256)
         self.relu = nn.LeakyReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         # print ('Dz in: ', x.shape)
         x = x.view(self.batch_size, -1)
-        x = self.relu(self.linear1(x))
-        x = self.relu(self.linear2(x))
+        x = self.relu(self.bn1(self.linear1(x)))
+        x = self.relu(self.bn2(self.linear2(x)))
         x = self.linear3(x)
         x = self.sigmoid(x)
         # print ('Dz out: ', x.shape)

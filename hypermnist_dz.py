@@ -77,7 +77,7 @@ def train(args):
     optimW1 = optim.Adam(W1.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW2 = optim.Adam(W2.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW3 = optim.Adam(W3.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimD = optim.Adam(netD.parameters(), lr=1e-5, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimD = optim.Adam(netD.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     
     best_test_acc, best_test_loss = 0., np.inf
     args.best_loss, args.best_acc = best_test_loss, best_test_acc
@@ -92,7 +92,7 @@ def train(args):
     final = 100.
     e_batch_size = 1000
     if args.pretrain_e:
-        for j in range(1000):
+        for j in range(100):
             x = utils.sample_d(x_dist, e_batch_size)
             z = utils.sample_d(z_dist, e_batch_size)
             codes = netE(x)
@@ -113,37 +113,47 @@ def train(args):
     print ('==> Begin Training')
     for _ in range(args.epochs):
         for batch_idx, (data, target) in enumerate(mnist_train):
-            ops.batch_zero_grad([netE, W1, W2, W3, netD])
+            netE.zero_grad()
+            W1.zero_grad()
+            W2.zero_grad()
+            W3.zero_grad()
+            z = utils.sample_d(x_dist, args.batch_size)
+            codes = netE(z)
+            #ops.free_params([netD]); ops.frozen_params([netE, W1, W2, W3])
+            for code in codes:
+                noise = utils.sample_z_like((args.batch_size, args.z))
+                d_real = netD(noise)
+                d_fake = netD(code)
+                d_real_loss = torch.log((1-d_real).mean())
+                d_fake_loss = torch.log(d_fake.mean())
+                d_real_loss.backward(torch.tensor(-1, dtype=torch.float).cuda(),retain_graph=True)
+                d_fake_loss.backward(torch.tensor(-1, dtype=torch.float).cuda(),retain_graph=True)
+                d_loss = d_real_loss + d_fake_loss
+            optimD.step()
+            #ops.frozen_params([netD])
+            #ops.free_params([netE, W1, W2, W3])
+            netD.zero_grad()
             z = utils.sample_d(x_dist, args.batch_size)
             codes = netE(z)
             l1 = W1(codes[0])
             l2 = W2(codes[1])
             l3 = W3(codes[2])
-            
-            ops.free_params([netD]); ops.frozen_params([netE, W1, W2, W3])
+            d_real = []
             for code in codes:
-                noise = utils.sample_d(z_dist, args.batch_size)
-                d_real = netD(noise)
-                d_fake = netD(code)
-                f = torch.log(d_fake).mean(0)
-                f.backward(mone, retain_graph=True)
-                r = torch.log(1 - d_real).mean(0)
-                r.backward(mone, retain_graph=True)
-                d_loss = r + f
-            optimD.step()
-            optimE.step()
-            ops.frozen_params([netD])
-            ops.free_params([netE, W1, W2, W3])
-            """
+                d = netD(code)
+                d_real.append(d)
+                
+            netD.zero_grad()
+            d_loss = torch.stack(d_real).log().mean() * 10.
             for (g1, g2, g3) in zip(l1, l2, l3):
                 correct, loss = train_clf(args, [g1, g2, g3], data, target)
                 scaled_loss = args.beta * loss
                 scaled_loss.backward(retain_graph=True)
+                d_loss.backward(torch.tensor(-1, dtype=torch.float).cuda(),retain_graph=True)
             optimE.step(); optimW1.step()
             optimW2.step(); optimW3.step()
-            """
-            correct = 0
-            loss = 0#loss.item()
+            
+            loss = loss.item()
                 
             if batch_idx % 50 == 0:
                 acc = (correct / 1) 
@@ -175,7 +185,7 @@ def train(args):
                 if test_loss < best_test_loss or test_acc > best_test_acc:
                     print ('==> new best stats, saving')
                     #utils.save_clf(args, z_test, test_acc)
-                    if test_acc > .95:
+                    if test_acc > .85:
                         utils.save_hypernet_mnist(args, [netE, W1, W2, W3], test_acc)
                     if test_loss < best_test_loss:
                         best_test_loss = test_loss

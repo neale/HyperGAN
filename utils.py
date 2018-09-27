@@ -174,14 +174,49 @@ def load_hypernet(path, args=None):
 
 def sample_hypernet(hypernet, args=None):
     netE, W1, W2, W3 = hypernet
-    #x_dist = create_d(300)
-    #z = sample_d(x_dist, 32)
-    z = torch.randn(32, 300).cuda()
+    x_dist = create_d(256)
+    z = sample_d(x_dist, 32)
+    #z = torch.randn(32, 300).cuda()
     codes = netE(z)
     l1 = W1(codes[0])
     l2 = W2(codes[1])
     l3 = W3(codes[2])
     return l1, l2, l3
+
+
+def load_hypernet_cifar(path, args=None):
+    if args is None:
+        args = load_default_args()
+    import models.models_cifar_small as hyper
+    netE = hyper.Encoder(args).cuda()
+    W1 = hyper.GeneratorW1(args).cuda()
+    W2 = hyper.GeneratorW2(args).cuda()
+    W3 = hyper.GeneratorW3(args).cuda()
+    W4 = hyper.GeneratorW4(args).cuda()
+    W5 = hyper.GeneratorW5(args).cuda()
+    print ('loading hypernet from {}'.format(path))
+    d = torch.load(path)
+    netE = load_net_only(netE, d['E'])
+    W1 = load_net_only(W1, d['W1'])
+    W2 = load_net_only(W2, d['W2'])
+    W3 = load_net_only(W3, d['W3'])
+    W4 = load_net_only(W4, d['W4'])
+    W5 = load_net_only(W5, d['W5'])
+    return (netE, W1, W2, W3, W4, W5)
+
+
+def sample_hypernet_cifar(hypernet, args=None):
+    netE, W1, W2, W3, W4, W5 = hypernet
+    x_dist = create_d(512)
+    z = sample_d(x_dist, 32)
+    #z = torch.randn(32, 300).cuda()
+    codes = netE(z)
+    l1 = W1(codes[0])
+    l2 = W2(codes[1])
+    l3 = W3(codes[2])
+    l4 = W4(codes[3])
+    l5 = W5(codes[4])
+    return l1, l2, l3, l4, l5
 
 
 def weights_to_clf(weights, model, names):
@@ -198,7 +233,7 @@ def weights_to_clf(weights, model, names):
 def load_default_args():
     parser = argparse.ArgumentParser(description='default hyper-args')
     parser.add_argument('--z', default=128, type=int, help='latent space width')
-    parser.add_argument('--ze', default=300, type=int, help='encoder dimension')
+    parser.add_argument('--ze', default=256, type=int, help='encoder dimension')
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--model', default='small2', type=str)
     parser.add_argument('--beta', default=1000, type=int)

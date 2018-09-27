@@ -112,13 +112,63 @@ def extract_weights_all(args, model, id):
         np.save('./params/mnist/{}/{}/{}_{}'.format(args.net, l, l, id), params)
 
 
+def sample_fmodel(args, hypernet, arch):
+    w_batch = utils.sample_hypernet(hypernet)
+    rand = np.random.randint(32)
+    sample_w = (w_batch[0][rand], w_batch[1][rand], w_batch[2][rand])
+    model = utils.weights_to_clf(sample_w, arch, args.stat['layer_names'])
+    return model, sample_w
 
-def measure_models(m1, m2, i):
-    m1_conv = m1['conv1.0.weight'].view(-1)
-    m2_conv = m2['conv1.0.weight'].view(-1)
-    m1_linear = m1['linear.weight']
-    m2_linear = m2['linear.weight']
+
+def measure_models(args, hypernet, weights):
     
+    models = []
+    m_conv1, m_conv2, m_linear = [], [], []
+    arch = get_network(args)
+    if args.hyper:
+        with torch.no_grad():
+            for i in range(100):
+                model, weights = sample_fmodel(args, hypernet, arch) 
+                m_conv1.append(weights[0])
+                m_conv2.append(weights[1])
+                m_linear.append(weights[2])
+            m_conv1 = torch.stack(m_conv1)
+            m_conv2 = torch.stack(m_conv2)
+            m_linear = torch.stack(m_linear)
+            print (m_conv1.shape)
+            print (m_conv2.shape)
+            print (m_linear.shape)
+            
+            l2_c1, l2_c2, l2_lin = [], [], []
+            for i in range(100):
+                l2_c1.append(np.linalg.norm(m_conv1[i]))
+                l2_c2.append(np.linalg.norm(m_conv2[i]))
+                l2_lin.append(np.linalg.norm(m_linear[i]))
+            print (l2_c1)
+            print (l2_c2)
+            print (l2_lin)
+    else:
+        with torch.no_grad():
+            for i in range(len(weights)):
+                m_conv1.append(weights[i]['conv1.0.weight'])
+                m_conv2.append(weights[i]['conv2.0.weight'])
+                m_linear.append(weights[i]['linear.weight'])
+            m_conv1 = torch.stack(m_conv1)
+            m_conv2 = torch.stack(m_conv2)
+            m_linear = torch.stack(m_linear)
+            print (m_conv1.shape)
+            print (m_conv2.shape)
+            print (m_linear.shape)
+            
+            l2_c1, l2_c2, l2_lin = [], [], []
+            for i in range(len(weights)):
+                l2_c1.append(np.linalg.norm(m_conv1[i]))
+                l2_c2.append(np.linalg.norm(m_conv2[i]))
+                l2_lin.append(np.linalg.norm(m_linear[i]))
+            print (l2_c1)
+            print (l2_c2)
+            print (l2_lin)
+    return 
     print (m1_conv.shape, m1_linear.mean(0).shape)
     
     l1_conv = (m1_conv - m2_conv).abs().sum()
@@ -184,6 +234,31 @@ def get_network(args):
     else:
         raise NotImplementedError
     return model
+
+
+def run_measure(args, path):
+    paths = glob(path + '/*.pt')
+    path = './hypermnist_0_0.984871875.pt'
+    #path = './hypermnist_disc_0.97311875.pt'
+    #path = './hypermnist_disc_0.97581875.pt'
+    path = './hypermnist_disc_0.8857125.pt'
+    hypernet = utils.load_hypernet(path)
+    mpaths = ['mnist_model_small2_0.pt',
+             'mnist_model_small2_1.pt',
+             'mnist_model_small2_2.pt',
+             'mnist_model_small2_3.pt',
+             'mnist_model_small2_4.pt',
+             #'mnist_model_small2_5.pt',
+             #'mnist_model_small2_6.pt',
+             #'mnist_model_small2_7.pt',
+             #'mnist_model_small2_8.pt',
+             #'mnist_model_small2_9.pt'
+             ]
+    models = []
+    for path in mpaths:
+        model = get_network(args)
+        models.append(torch.load(path))
+    measure_models(args, hypernet, models)
 
 
 """ train and save models and their weights """
@@ -255,7 +330,8 @@ if __name__ == '__main__':
         load_models(args, path)
     elif args.task =='train':
         run_model_search(args, path)
-    elif args.task == 'adv':
-        adv_attack(args, path)
+    elif args.task == 'measure':
+        run_measure(args, path)
+
     else:
         raise NotImplementedError

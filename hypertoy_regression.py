@@ -47,7 +47,7 @@ def load_toy(args):
  
     path = '/scratch/eecs-share/ratzlafn/HyperGAN/exp_models/'
     paths = glob.glob(path+'*.pt')
-    path = [x for x in paths if '15.77' in x][0]
+    path = [x for x in paths if '16.35916' in x][0]
     print ('loading path {}'.format(path))
     netE = models.Encoder(args)
     W1 = models.GeneratorW1(args)
@@ -84,7 +84,7 @@ def load_toy(args):
         return torch.stack(outs)
 
     
-    for pic in range(20):
+    for pic in range(100):
         x_s, y_s = func(4)
         x = np.arange(-6, 6.01, 0.01)
         y = np.power(x, 3)
@@ -99,12 +99,13 @@ def load_toy(args):
         out_full = []
         res_max = np.zeros(20)
         res_min = np.zeros(20)
-        for _ in range(1000):
+        for _ in range(800):
             outs = sample(x_i)
             outs = outs.detach().cpu().numpy()
             out_full.append(outs)
-        outs = np.stack(out_full).reshape(1000*32, 20)
-        for i in range(32*1000):
+        
+        outs = np.stack(out_full).reshape(800*32, 20)
+        for i in range(32*800):
             for j in range(20):
                 res_max[j] = outs[i][j] if outs[i][j] > res_max[j] else res_max[j]
                 res_min[j] = outs[i][j] if outs[i][j] < res_min[j] else res_min[j]
@@ -116,30 +117,7 @@ def load_toy(args):
         plt.plot(x_new, ffit1, color='#7CD6ED')
         plt.plot(x_new, ffit2, color='#7CD6ED')
         plt.fill_between(x_new, ffit1, ffit2, color='#C8E7EF')
-        """
-        outs = np.stack(out_full).reshape(200*32, 20)
-        stds = outs.std(0)
-        std1_max = outs.mean(0) + 2* np.std(outs, 0)
-        std1_min = outs.mean(0) - 2* np.std(outs, 0)
-        std2_max = outs.mean(0) + 3 * np.std(outs, 0)
-        std2_min = outs.mean(0) - 3 * np.std(outs, 0)
         
-        coefs1 = poly.polyfit(x_s, std2_min, 3)
-        ffit1 = poly.polyval(x_new, coefs1)
-        coefs2 = poly.polyfit(x_s, std2_max, 3)
-        ffit2 = poly.polyval(x_new, coefs2)
-        plt.plot(x_new, ffit1, color='red')
-        plt.plot(x_new, ffit2, color='red')
-        plt.fill_between(x_new, ffit1, ffit2, color='#7CD6ED')
-        
-        coefs1 = poly.polyfit(x_s, std1_min, 3)
-        ffit1 = poly.polyval(x_new, coefs1)
-        coefs2 = poly.polyfit(x_s, std1_max, 3)
-        ffit2 = poly.polyval(x_new, coefs2)
-        plt.plot(x_new, ffit1, color='green')
-        plt.plot(x_new, ffit2, color='green')
-        plt.fill_between(x_new, ffit1, ffit2, color='#31C6EC')
-        """
         plt.plot(x, y, label='True Function')
         plt.scatter(x_s, y_s, color='red', label='Observations')
         coefs = poly.polyfit(x_s, outs_mean, 3)
