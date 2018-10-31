@@ -24,11 +24,9 @@ def load_args():
     parser.add_argument('--dataset', default='mnist', type=str)
     parser.add_argument('--beta', default=100, type=int)
     parser.add_argument('--resume', default=False, type=bool)
-    parser.add_argument('--use_x', default=False, type=bool)
-    parser.add_argument('--pretrain_e', default=False, type=bool)
+    parser.add_argument('--pretrain_e', default=True, type=bool)
     parser.add_argument('--scratch', default=False, type=bool)
     parser.add_argument('--exp', default='0', type=str)
-    parser.add_argument('--use_d', default=False, type=str)
     parser.add_argument('--model', default='small', type=str)
 
     args = parser.parse_args()
@@ -197,8 +195,6 @@ if __name__ == '__main__':
     args = load_args()
     if args.model == 'small':
         import models.models_mnist_small as models
-    elif args.model == 'nobn':
-        import models.models_mnist_nobn as models
     elif args.model == 'full':
         import models.models_mnist as models
     else:

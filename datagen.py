@@ -14,8 +14,6 @@ def load_mnist(args):
     torch.cuda.manual_seed(1)
     kwargs = {'num_workers': 1, 'pin_memory': True, 'drop_last': True}
     path = 'data_m/'
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/' + path
     train_loader = torch.utils.data.DataLoader(
             datasets.MNIST(path, train=True, download=True,
                 transform=transforms.Compose([
@@ -37,8 +35,6 @@ def load_notmnist(args):
     torch.cuda.manual_seed(1)
     kwargs = {'num_workers': 1, 'pin_memory': True, 'drop_last': True}
     path = 'data_nm/'
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/' + path
     train_loader = torch.utils.data.DataLoader(
             datasets.MNIST(path, train=True,
                 transform=transforms.Compose([
@@ -58,8 +54,6 @@ def load_notmnist(args):
 
 def load_fashion_mnist():
     path = 'data_f'
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/' + path
     torch.cuda.manual_seed(1)
     kwargs = {'num_workers': 1, 'pin_memory': True, 'drop_last': True}
     train_loader = torch.utils.data.DataLoader(
@@ -81,8 +75,6 @@ def load_fashion_mnist():
 
 def load_cifar(args):
     path = './data_c'
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/' + path
     kwargs = {'num_workers': 2, 'pin_memory': True, 'drop_last': True}
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
@@ -107,8 +99,6 @@ def load_cifar(args):
 
 def load_cifar_hidden(args, c_idx):
     path = './data_c'
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/' + path
     kwargs = {'num_workers': 2, 'pin_memory': True, 'drop_last': True}
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
@@ -142,8 +132,6 @@ def load_cifar_hidden(args, c_idx):
 
 def load_cifar100(args):
     path = './data_c100'
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/' + path
     kwargs = {'num_workers': 2, 'pin_memory': True, 'drop_last': True}
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
@@ -170,8 +158,6 @@ def load_omniglot(args):
     torch.cuda.manual_seed(1)
     kwargs = {'num_workers': 1, 'pin_memory': True, 'drop_last': True}
     path = 'data_o/'
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/' + path
     train_loader = torch.utils.data.DataLoader(
             datasets.Omniglot(path, download=True,
                 transform=transforms.Compose([
@@ -184,8 +170,6 @@ def load_omniglot(args):
 
 def load_10_class_cifar100(args):
     path = 'cifar-100-python'
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/' + path
     kwargs = {'num_workers': 2, 'pin_memory': True, 'drop_last': True}
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
