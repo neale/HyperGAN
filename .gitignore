@@ -4,7 +4,6 @@
 *.pkl
 *.npy
 *.jpg
-*.png
 *.pyc
 data/
 data_f/
