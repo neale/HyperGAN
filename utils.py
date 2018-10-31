@@ -101,8 +101,6 @@ def save_clf(args, Z, acc):
     #ac, loss = cifar.test(args, model, 0)
     #print ('acc: {}, loss: {}'.format(ac, loss))
     path = 'exp_models/hyper{}_clf_{}_{}.pt'.format(args.dataset, args.exp, acc)
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/HyperGAN/' + path
     print ('saving hypernet to {}'.format(path))
     torch.save({'state_dict': model.state_dict()}, path)
 
@@ -116,8 +114,6 @@ def save_hypernet_mnist(args, models, acc):
             'W3': get_net_only(W3),
             }
     path = 'exp_models/hypermnist_{}_{}.pt'.format(args.exp, acc)
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/HyperGAN/' + path
     torch.save(hypernet_dict, path)
     print ('Hypernet saved to {}'.format(path))
 
@@ -134,8 +130,6 @@ def save_hypernet_cifar(args, models, acc):
             'D': get_net_only(netD),
             }
     path = 'exp_models/hypercifar_{}_{}.pt'.format(args.exp, acc)
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/HyperGAN/' + path
     torch.save(hypernet_dict, path)
     print ('Hypernet saved to {}'.format(path))
 
@@ -148,8 +142,6 @@ def save_hypernet_regression(args, models, mse):
             'W2': get_net_only(W2),
             }
     path = 'exp_models/hypertoy{}_{}.pt'.format(args.exp, mse)
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/HyperGAN/' + path
     torch.save(hypernet_dict, path)
     print ('Hypernet saved to {}'.format(path))
 
@@ -209,7 +201,6 @@ def sample_hypernet_cifar(hypernet, args=None):
     netE, W1, W2, W3, W4, W5 = hypernet
     x_dist = create_d(512)
     z = sample_d(x_dist, 32)
-    #z = torch.randn(32, 300).cuda()
     codes = netE(z)
     l1 = W1(codes[0])
     l2 = W2(codes[1])
@@ -232,8 +223,8 @@ def weights_to_clf(weights, model, names):
 
 def load_default_args():
     parser = argparse.ArgumentParser(description='default hyper-args')
-    parser.add_argument('--z', default=128, type=int, help='latent space width')
-    parser.add_argument('--ze', default=256, type=int, help='encoder dimension')
+    parser.add_argument('--z', default=256, type=int, help='latent space width')
+    parser.add_argument('--ze', default=512, type=int, help='encoder dimension')
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--model', default='small2', type=str)
     parser.add_argument('--beta', default=1000, type=int)

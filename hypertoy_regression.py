@@ -42,94 +42,6 @@ def load_args():
     return args
 
 
-
-def load_toy(args):
- 
-    path = '/scratch/eecs-share/ratzlafn/HyperGAN/exp_models/'
-    paths = glob.glob(path+'*.pt')
-    path = [x for x in paths if '16.35916' in x][0]
-    print ('loading path {}'.format(path))
-    netE = models.Encoder(args)
-    W1 = models.GeneratorW1(args)
-    W2 = models.GeneratorW2(args)
-    print (netE, W1, W2)
-    d = torch.load(path)
-    netE = utils.load_net_only(netE, d['E'])
-    W1 = utils.load_net_only(W1, d['W1'])
-    W2 = utils.load_net_only(W2, d['W2'])
-    
-    def clf(data, Z):
-        data = data.view(20, 1)
-        out = F.linear(data, Z[0])
-        out = F.elu(out)
-        out = F.linear(out, Z[1])
-        return out.view(20, 1)
-
-    def func(n):
-        x = np.random.uniform(-n, n, (18))
-        x = np.concatenate((x, [-n], [n]))
-        eps = np.random.normal(0, 3, (20))
-        y = np.power(x, 3) + eps
-        return x, y
-    
-    def sample(x_s):
-        z = torch.randn(args.batch_size, args.ze)
-        codes = netE(z)
-        l1 = W1(codes[0])
-        l2 = W2(codes[1])
-        outs = []
-        for i in range(32):
-            out = clf(torch.from_numpy(x_s).float(), [l1[i], l2[i]])
-            outs.append(out)
-        return torch.stack(outs)
-
-    
-    for pic in range(100):
-        x_s, y_s = func(4)
-        x = np.arange(-6, 6.01, 0.01)
-        y = np.power(x, 3)
-
-        x_new = np.linspace(x[0], x[-1], num=len(x)*10)
-        x_i, y_i = func(6)
-        outs = sample(x_s)
-        outs_mean = outs.mean(0)
-        outs_mean = outs_mean.detach().cpu().numpy()
-
-        """ std max """
-        out_full = []
-        res_max = np.zeros(20)
-        res_min = np.zeros(20)
-        for _ in range(800):
-            outs = sample(x_i)
-            outs = outs.detach().cpu().numpy()
-            out_full.append(outs)
-        
-        outs = np.stack(out_full).reshape(800*32, 20)
-        for i in range(32*800):
-            for j in range(20):
-                res_max[j] = outs[i][j] if outs[i][j] > res_max[j] else res_max[j]
-                res_min[j] = outs[i][j] if outs[i][j] < res_min[j] else res_min[j]
-        coefs1 = poly.polyfit(x_s, res_min, 3)
-        ffit1 = poly.polyval(x_new, coefs1)
-        coefs2 = poly.polyfit(x_s, res_max, 3)
-        ffit2 = poly.polyval(x_new, coefs2)
-        
-        plt.plot(x_new, ffit1, color='#7CD6ED')
-        plt.plot(x_new, ffit2, color='#7CD6ED')
-        plt.fill_between(x_new, ffit1, ffit2, color='#C8E7EF')
-        
-        plt.plot(x, y, label='True Function')
-        plt.scatter(x_s, y_s, color='red', label='Observations')
-        coefs = poly.polyfit(x_s, outs_mean, 3)
-        ffit = poly.polyval(x_new, coefs)
-        plt.plot(x_new, ffit.reshape(-1), c='gray', label='Mean Function')
-        plt.grid(True)
-        plt.legend(loc='best')
-
-        plt.savefig('/scratch/eecs-share/ratzlafn/mean_field_{}.png'.format(pic))
-        plt.close()
-
-
 # hard code the two layer net
 def train_clf(args, Z, data, target):
     """ calc classifier loss on target architecture """
@@ -167,7 +79,7 @@ def plot(args, out, data, target):
     x_new = np.linspace(x[0], x[-1], num=len(x)*10)
     ffit = poly.polyval(x_new, coefs)
     plt.plot(x_new, ffit, c='gray')
-    plt.savefig('/scratch/eecs-share/ratzlafn/toy_{}.png'.format(args.ze))
+    plt.savefig('./images/toy_{}.png'.format(args.ze))
     plt.close()
 
 
@@ -242,9 +154,7 @@ def train(args):
             print ('**************************************')
             
         
-
-
 if __name__ == '__main__':
     args = load_args()
-    load_toy(args)
-    #train(args)
+    train(args)
+    #load_toy(args)

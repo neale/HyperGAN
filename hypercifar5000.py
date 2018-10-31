@@ -333,6 +333,8 @@ def train(args):
     print ('==> Begin Training')
     for _ in range(args.epochs):
         for batch_idx, (data, target) in enumerate(cifar_train):
+            if batch_idx > 158:
+                continue
             batch_zero_grad([netE, W1, W2, W3, W4, W5, netD])
             z = sample_z_like((args.batch_size, args.ze,))
             codes = netE(z)
@@ -371,19 +373,9 @@ def train(args):
             """ Update Statistics """
             if batch_idx % 50 == 0:
                 acc = (correct / 1) 
-                norm_z1 = np.linalg.norm(l1.data)
-                norm_z2 = np.linalg.norm(l2.data)
-                norm_z3 = np.linalg.norm(l3.data)
-                norm_z4 = np.linalg.norm(l4.data)
-                norm_z5 = np.linalg.norm(l5.data)
                 print ('**************************************')
-                print ('Mean Test: Enc, Dz, Lscale: {} test'.format(args.beta))
+                print ('5k CIFAR Test: Enc, Dz, Lscale: {} test'.format(args.beta))
                 print ('Acc: {}, G Loss: {}, D Loss: {}'.format(acc, loss, d_loss))
-                print ('Filter norm: ', norm_z1)
-                print ('Filter norm: ', norm_z2)
-                print ('Filter norm: ', norm_z3)
-                print ('Linear norm: ', norm_z4)
-                print ('Linear norm: ', norm_z5)
                 print ('best test loss: {}'.format(args.best_loss))
                 print ('best test acc: {}'.format(args.best_acc))
                 print ('**************************************')

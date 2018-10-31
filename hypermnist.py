@@ -17,12 +17,12 @@ def load_args():
 
     parser = argparse.ArgumentParser(description='param-wgan')
     parser.add_argument('--z', default=128, type=int, help='latent space width')
-    parser.add_argument('--ze', default=300, type=int, help='encoder dimension')
+    parser.add_argument('--ze', default=256, type=int, help='encoder dimension')
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--epochs', default=200000, type=int)
     parser.add_argument('--target', default='small2', type=str)
     parser.add_argument('--dataset', default='mnist', type=str)
-    parser.add_argument('--beta', default=1000, type=int)
+    parser.add_argument('--beta', default=100, type=int)
     parser.add_argument('--resume', default=False, type=bool)
     parser.add_argument('--use_x', default=False, type=bool)
     parser.add_argument('--pretrain_e', default=False, type=bool)
@@ -53,10 +53,20 @@ def train_clf(args, Z, data, target):
     return (correct, loss)
 
 
+def z_loss(args, real, fake):
+    zero = torch.zeros_like(fake)
+    one = torch.ones_like(real)
+    d_fake = F.mse(fake, one)
+    d_real = F.binary_cross_entropy_with_logits(real, zero)
+    d_real_trick = F.binary_cross_entropy_with_logits(real, one)
+    loss_z = 10 * (d_fake + d_real)
+    return loss_z, d_real_trick
+
+
 def train(args):
     
     torch.manual_seed(8734)
-    netE = models.Encoder(args).cuda()
+    netE = models.Encoderz(args).cuda()
     W1 = models.GeneratorW1(args).cuda()
     W2 = models.GeneratorW2(args).cuda()
     W3 = models.GeneratorW3(args).cuda()
@@ -67,7 +77,7 @@ def train(args):
     optimW1 = optim.Adam(W1.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW2 = optim.Adam(W2.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     optimW3 = optim.Adam(W3.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
-    optimD = optim.Adam(netD.parameters(), lr=1e-5, betas=(0.5, 0.9), weight_decay=1e-4)
+    optimD = optim.Adam(netD.parameters(), lr=1e-4, betas=(0.5, 0.9), weight_decay=1e-4)
     
     best_test_acc, best_test_loss = 0., np.inf
     args.best_loss, args.best_acc = best_test_loss, best_test_acc
@@ -82,7 +92,7 @@ def train(args):
     final = 100.
     e_batch_size = 1000
     if args.pretrain_e:
-        for j in range(2000):
+        for j in range(100):
             x = utils.sample_d(x_dist, e_batch_size)
             z = utils.sample_d(z_dist, e_batch_size)
             codes = netE(x)
@@ -103,36 +113,43 @@ def train(args):
     print ('==> Begin Training')
     for _ in range(args.epochs):
         for batch_idx, (data, target) in enumerate(mnist_train):
-            ops.batch_zero_grad([netE, W1, W2, W3, netD])
+            netE.zero_grad()
+            W1.zero_grad()
+            W2.zero_grad()
+            W3.zero_grad()
+            z = utils.sample_d(x_dist, args.batch_size)
+            codes = netE(z)
+            for code in codes:
+                noise = utils.sample_z_like((args.batch_size, args.z))
+                d_real = netD(noise)
+                d_fake = netD(code)
+                d_real_loss = torch.log((1-d_real).mean())
+                d_fake_loss = torch.log(d_fake.mean())
+                d_real_loss.backward(torch.tensor(-1, dtype=torch.float).cuda(),retain_graph=True)
+                d_fake_loss.backward(torch.tensor(-1, dtype=torch.float).cuda(),retain_graph=True)
+                d_loss = d_real_loss + d_fake_loss
+            optimD.step()
+            netD.zero_grad()
             z = utils.sample_d(x_dist, args.batch_size)
             codes = netE(z)
             l1 = W1(codes[0])
             l2 = W2(codes[1])
             l3 = W3(codes[2])
-            if args.use_d:
-                ops.free_params([netD])
-                ops.frozen_params([netE, W1, W2, W3])
-                for code in codes:
-                    noise = utils.sample_d(z_dist, args.batch_size)
-                    d_real = netD(noise)
-                    d_fake = netD(code)
-                    d_real_loss = -1 * torch.log((1-d_real).mean())
-                    d_fake_loss = -1 * torch.log(d_fake.mean())
-                    d_real_loss.backward(retain_graph=True)
-                    d_fake_loss.backward(retain_graph=True)
-                    d_loss = d_real_loss + d_fake_loss
-                optimD.step()
-                ops.frozen_params([netD])
-                ops.free_params([netE, W1, W2, W3])
-            
+            d_real = []
+            for code in codes:
+                d = netD(code)
+                d_real.append(d)
+                
+            netD.zero_grad()
+            d_loss = torch.stack(d_real).log().mean() * 10.
             for (g1, g2, g3) in zip(l1, l2, l3):
                 correct, loss = train_clf(args, [g1, g2, g3], data, target)
                 scaled_loss = args.beta * loss
                 scaled_loss.backward(retain_graph=True)
-            optimE.step()
-            optimW1.step()
-            optimW2.step()
-            optimW3.step()
+                d_loss.backward(torch.tensor(-1, dtype=torch.float).cuda(),retain_graph=True)
+            optimE.step(); optimW1.step()
+            optimW2.step(); optimW3.step()
+            
             loss = loss.item()
                 
             if batch_idx % 50 == 0:
@@ -140,6 +157,7 @@ def train(args):
                 print ('**************************************')
                 print ('{} MNIST Test, beta: {}'.format(args.model, args.beta))
                 print ('Acc: {}, Loss: {}'.format(acc, loss))
+                print ('D loss: {}'.format(d_loss))
                 print ('best test loss: {}'.format(args.best_loss))
                 print ('best test acc: {}'.format(args.best_acc))
                 print ('**************************************')
@@ -147,37 +165,24 @@ def train(args):
             if batch_idx > 1 and batch_idx % 199 == 0:
                 test_acc = 0.
                 test_loss = 0.
-                ensemble = 5
                 for i, (data, y) in enumerate(mnist_test):
-                    en1, en2, en3 = [], [], []
-                    for i in range(ensemble):
-                        z = utils.sample_d(x_dist, args.batch_size)
-                        codes = netE(z)
-                        rand = np.random.randint(32)
-                        en1.append(W1(codes[0])[rand])
-                        en2.append(W2(codes[1])[rand])
-                        en3.append(W3(codes[2])[rand])
-                    g1 = torch.stack(en1).mean(0)
-                    g2 = torch.stack(en2).mean(0)
-                    g3 = torch.stack(en3).mean(0)
-                    correct, loss = train_clf(args, [g1, g2, g3], data, y)
-                    test_acc += correct.item()
-                    test_loss += loss.item()
-                test_loss /= len(mnist_test.dataset)
-                test_acc /= len(mnist_test.dataset)
-                """
-                for (g1, g2, g3) in zip(l1, l2, l3):
+                    z = utils.sample_d(x_dist, args.batch_size)
+                    codes = netE(z)
+                    l1 = W1(codes[0])
+                    l2 = W2(codes[1])
+                    l3 = W3(codes[2])
+                    for (g1, g2, g3) in zip(l1, l2, l3):
                         correct, loss = train_clf(args, [g1, g2, g3], data, y)
                         test_acc += correct.item()
                         test_loss += loss.item()
                 test_loss /= len(mnist_test.dataset) * args.batch_size
                 test_acc /= len(mnist_test.dataset) * args.batch_size
-                """
+        
                 print ('Test Accuracy: {}, Test Loss: {}'.format(test_acc, test_loss))
                 if test_loss < best_test_loss or test_acc > best_test_acc:
                     print ('==> new best stats, saving')
                     #utils.save_clf(args, z_test, test_acc)
-                    if test_acc > .95:
+                    if test_acc > .85:
                         utils.save_hypernet_mnist(args, [netE, W1, W2, W3], test_acc)
                     if test_loss < best_test_loss:
                         best_test_loss = test_loss
