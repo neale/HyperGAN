@@ -23,12 +23,8 @@ def load_args():
     parser.add_argument('--target', default='small2', type=str)
     parser.add_argument('--dataset', default='mnist', type=str)
     parser.add_argument('--beta', default=1000, type=int)
-    parser.add_argument('--resume', default=False, type=bool)
-    parser.add_argument('--use_x', default=False, type=bool)
-    parser.add_argument('--pretrain_e', default=False, type=bool)
-    parser.add_argument('--scratch', default=False, type=bool)
+    parser.add_argument('--pretrain_e', default=True, type=bool)
     parser.add_argument('--exp', default='0', type=str)
-    parser.add_argument('--use_d', default=False, type=str)
     parser.add_argument('--model', default='small', type=str)
 
     args = parser.parse_args()
@@ -112,21 +108,16 @@ def train(args):
             l2 = W2(codes[1])
             l3 = W3(codes[2])
 
-            if args.use_d:
-                ops.free_params([netD])
-                ops.frozen_params([netE, W1, W2, W3])
-                for code in codes:
-                    noise = utils.sample_d(z_dist, args.batch_size)
-                    d_real = netD(noise)
-                    d_fake = netD(code)
-                    d_real_loss = -1 * torch.log((1-d_real).mean())
-                    d_fake_loss = -1 * torch.log(d_fake.mean())
-                    d_real_loss.backward(retain_graph=True)
-                    d_fake_loss.backward(retain_graph=True)
-                    d_loss = d_real_loss + d_fake_loss
-                optimD.step()
-                ops.frozen_params([netD])
-                ops.free_params([netE, W1, W2, W3])
+            for code in codes:
+                noise = utils.sample_d(z_dist, args.batch_size)
+                d_real = netD(noise)
+                d_fake = netD(code)
+                d_real_loss = -1 * torch.log((1-d_real).mean())
+                d_fake_loss = -1 * torch.log(d_fake.mean())
+                d_real_loss.backward(retain_graph=True)
+                d_fake_loss.backward(retain_graph=True)
+                d_loss = d_real_loss + d_fake_loss
+            optimD.step()
             
             for (g1, g2, g3) in zip(l1, l2, l3):
                 correct, loss = train_clf(args, [g1, g2, g3], data, target)
@@ -180,8 +171,6 @@ if __name__ == '__main__':
     args = load_args()
     if args.model == 'small':
         import models.models_mnist_small as models
-    elif args.model == 'nobn':
-        import models.models_mnist_nobn as models
     elif args.model == 'full':
         import models.models_mnist as models
     else:
