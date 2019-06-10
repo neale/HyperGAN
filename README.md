@@ -1,5 +1,5 @@
 # HyperGAN: A Generative Model for Neural Networks (under construction)
-![arch](imgs/arch.png)
+![arch](arch.png)
 
 HyperGAN generates fully trained neural networks simply by sampling from noise. 
 No large dataset of fully trained examples needed. 
