@@ -1,213 +1,38 @@
-import os
-import sys
-import time
 import torch
-import natsort
-import datagen
-import argparse
-import scipy.misc
-import numpy as np
-import matplotlib.pyplot as plt
-import itertools
-import cv2
-import numpy as np
-
-from glob import glob
-from scipy.misc import imsave
 import torch.nn as nn
 import torch.nn.init as init
 import torch.distributions.multivariate_normal as N
+import torch.distributions.uniform as U
+from torch.optim.lr_scheduler import _LRScheduler
+from torch.optim.optimizer import Optimizer
+
+import math
+import numpy as np
+from bisect import bisect_right,bisect_left
 
 
-def sample_z(args, grad=True):
-    z = torch.randn(args.batch_size, args.dim, requires_grad=grad).cuda()
-    return z
-
-
-def create_d(shape):
-    mean = torch.zeros(shape)
-    cov = torch.eye(shape)
-    D = N.MultivariateNormal(mean, cov)
-    return D
-
-
-def sample_d(D, shape, scale=1., grad=True):
-    z = scale * D.sample((shape,)).cuda()
-    z.requires_grad = grad
-    return z
-
-
-def sample_z_like(shape, scale=1., grad=True):
-    return torch.randn(*shape, requires_grad=grad).cuda()
-
-
-def save_model(args, model, optim):
-    path = '{}/{}/{}_{}.pt'.format(
-            args.dataset, args.model, model.name, args.exp)
-    path = model_dir + path
-    torch.save({
-        'state_dict': model.state_dict(),
-        'optimizer': optim.state_dict(),
-        'best_acc': args.best_acc,
-        'best_loss': args.best_loss
-        }, path)
-
-
-def load_model(args, model, optim):
-    path = '{}/{}/{}_{}.pt'.format(
-            args.dataset, args.model, model.name, args.exp)
-    path = model_dir + path
-    ckpt = torch.load(path)
-    model.load_state_dict(ckpt['state_dict'])
-    optim.load_state_dict(ckpt['optimizer'])
-    acc = ckpt['best_acc']
-    loss = ckpt['best_loss']
-    return model, optim, (acc, loss)
-
-
-def get_net_only(model):
-    net_dict = {
-            'state_dict': model.state_dict(),
-    }
-    return net_dict
-
-
-def load_net_only(model, d):
-    model.load_state_dict(d['state_dict'])
-    return model
-
-
-# this is also hard coded right now to the specific model
-# dont sue me 
-def save_clf(args, Z, acc):
-    """ gross """
-    if args.dataset == 'mnist':
-        import models.mnist_clf as models
-        model = models.Small2().cuda()
-    elif args.dataset == 'cifar':
-        import models.cifar_clf as models
-        model = models.MedNet().cuda() 
-    """ end gross """
-
-    state = model.state_dict()
-    layers = zip(args.stat['layer_names'], Z)
-    for i, (name, params) in enumerate(layers):
-        name = name + '.weight'
-        loader = state[name]
-        state[name] = params.detach()
-        assert state[name].equal(loader) == False
-        model.load_state_dict(state)
-    #import cifar
-    #ac, loss = cifar.test(args, model, 0)
-    #print ('acc: {}, loss: {}'.format(ac, loss))
-    path = 'exp_models/hyper{}_clf_{}_{}.pt'.format(args.dataset, args.exp, acc)
-    print ('saving hypernet to {}'.format(path))
-    torch.save({'state_dict': model.state_dict()}, path)
-
-
-def save_hypernet_mnist(args, models, acc):
-    netE, W1, W2, W3 = models
-    hypernet_dict = {
-            'E':  get_net_only(netE),
-            'W1': get_net_only(W1),
-            'W2': get_net_only(W2),
-            'W3': get_net_only(W3),
-            }
-    path = 'exp_models/hypermnist_{}_{}.pt'.format(args.exp, acc)
-    torch.save(hypernet_dict, path)
-    print ('Hypernet saved to {}'.format(path))
-
-
-def save_hypernet_cifar(args, models, acc):
-    netE, W1, W2, W3, W4, W5, netD = models
-    hypernet_dict = {
-            'E':  get_net_only(netE),
-            'W1': get_net_only(W1),
-            'W2': get_net_only(W2),
-            'W3': get_net_only(W3),
-            'W4': get_net_only(W4),
-            'W5': get_net_only(W5),
-            'D': get_net_only(netD),
-            }
-    path = 'exp_models/hypercifar_{}_{}.pt'.format(args.exp, acc)
-    torch.save(hypernet_dict, path)
-    print ('Hypernet saved to {}'.format(path))
-
-
-def save_hypernet_regression(args, models, mse):
-    netE, W1, W2 = models
-    hypernet_dict = {
-            'E':  get_net_only(netE),
-            'W1': get_net_only(W1),
-            'W2': get_net_only(W2),
-            }
-    path = 'exp_models/hypertoy{}_{}.pt'.format(args.exp, mse)
-    torch.save(hypernet_dict, path)
-    print ('Hypernet saved to {}'.format(path))
-
-
-""" hard coded for mnist experiment dont use generally """
-def load_hypernet(path, args=None):
-    if args is None:
-        args = load_default_args()
-    import models.models_mnist_small as hyper
-    netE = hyper.Encoder(args).cuda()
-    W1 = hyper.GeneratorW1(args).cuda()
-    W2 = hyper.GeneratorW2(args).cuda()
-    W3 = hyper.GeneratorW3(args).cuda()
-    print ('loading hypernet from {}'.format(path))
-    d = torch.load(path)
-    netE = load_net_only(netE, d['E'])
-    W1 = load_net_only(W1, d['W1'])
-    W2 = load_net_only(W2, d['W2'])
-    W3 = load_net_only(W3, d['W3'])
-    return (netE, W1, W2, W3)
-
-
-def sample_hypernet(hypernet, args=None):
+def sample_hypernet_mnist(args ,hypernet, num):
     netE, W1, W2, W3 = hypernet
-    x_dist = create_d(256)
-    z = sample_d(x_dist, 32)
-    #z = torch.randn(32, 300).cuda()
+    x_dist = create_d(args.ze)
+    z = sample_d(x_dist, num)
     codes = netE(z)
     l1 = W1(codes[0])
     l2 = W2(codes[1])
     l3 = W3(codes[2])
-    return l1, l2, l3
+    return l1, l2, l3, codes
 
 
-def load_hypernet_cifar(path, args=None):
-    if args is None:
-        args = load_default_args()
-    import models.models_cifar_small as hyper
-    netE = hyper.Encoder(args).cuda()
-    W1 = hyper.GeneratorW1(args).cuda()
-    W2 = hyper.GeneratorW2(args).cuda()
-    W3 = hyper.GeneratorW3(args).cuda()
-    W4 = hyper.GeneratorW4(args).cuda()
-    W5 = hyper.GeneratorW5(args).cuda()
-    print ('loading hypernet from {}'.format(path))
-    d = torch.load(path)
-    netE = load_net_only(netE, d['E'])
-    W1 = load_net_only(W1, d['W1'])
-    W2 = load_net_only(W2, d['W2'])
-    W3 = load_net_only(W3, d['W3'])
-    W4 = load_net_only(W4, d['W4'])
-    W5 = load_net_only(W5, d['W5'])
-    return (netE, W1, W2, W3, W4, W5)
-
-
-def sample_hypernet_cifar(hypernet, args=None):
+def sample_hypernet_cifar(args, hypernet, num):
     netE, W1, W2, W3, W4, W5 = hypernet
-    x_dist = create_d(512)
-    z = sample_d(x_dist, 32)
+    x_dist = create_d(args.ze)
+    z = sample_d(x_dist, num)
     codes = netE(z)
     l1 = W1(codes[0])
     l2 = W2(codes[1])
     l3 = W3(codes[2])
     l4 = W4(codes[3])
     l5 = W5(codes[4])
-    return l1, l2, l3, l4, l5
+    return l1, l2, l3, l4, l5, codes
 
 
 def weights_to_clf(weights, model, names):
@@ -221,28 +46,20 @@ def weights_to_clf(weights, model, names):
     return model
 
 
-def load_default_args():
-    parser = argparse.ArgumentParser(description='default hyper-args')
-    parser.add_argument('--z', default=256, type=int, help='latent space width')
-    parser.add_argument('--ze', default=512, type=int, help='encoder dimension')
-    parser.add_argument('--batch_size', default=32, type=int)
-    parser.add_argument('--model', default='small2', type=str)
-    parser.add_argument('--beta', default=1000, type=int)
-    parser.add_argument('--use_x', default=False, type=bool)
-    parser.add_argument('--exp', default='0', type=str)
-    parser.add_argument('--use_d', default=False, type=str)
-    parser.add_argument('--boost', default=10, type=int)
+class CyclicCosAnnealingLR(_LRScheduler):
+    def __init__(self, optimizer,milestones, eta_min=0, last_epoch=-1):
+        self.eta_min = eta_min
+        self.milestones=milestones
+        super(CyclicCosAnnealingLR, self).__init__(optimizer, last_epoch)
 
-    parser.add_argument('--epochs', type=int, default=10, metavar='N', help='')
-    parser.add_argument('--lr', type=float, default=0.01, metavar='LR', help='')
-    parser.add_argument('--net', type=str, default='small2', metavar='N', help='')
-    parser.add_argument('--dataset', type=str, default='mnist', metavar='N', help='')
-    parser.add_argument('--mdir', type=str, default='models/', metavar='N', help='')
-    parser.add_argument('--scratch', type=bool, default=False, metavar='N', help='')
-    parser.add_argument('--ft', type=bool, default=False, metavar='N', help='')
-    parser.add_argument('--hyper', type=bool, default=False, metavar='N', help='')
-    parser.add_argument('--task', type=str, default='train', metavar='N', help='')
-
-    args = parser.parse_args([])
-    return args
-
+    def get_lr(self):
+        if self.last_epoch >= self.milestones[-1]:
+            return [self.eta_min for base_lr in self.base_lrs]
+        idx = bisect_right(self.milestones,self.last_epoch)
+        left_barrier = 0 if idx==0 else self.milestones[idx-1]
+        right_barrier = self.milestones[idx]
+        width = right_barrier - left_barrier
+        curr_pos = self.last_epoch- left_barrier 
+        return [self.eta_min + (base_lr - self.eta_min) *
+               (1 + math.cos(math.pi * curr_pos/ width)) / 2
+                for base_lr in self.base_lrs]
