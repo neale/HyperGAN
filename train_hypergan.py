@@ -84,7 +84,7 @@ def train(args):
     best_test_acc, best_test_loss, = 0., np.inf
     args.best_loss, args.best_acc = best_test_loss, best_test_acc
 
-    trainset, testset = getattr(datagen, 'load_{}'.format(args.dataset))(args)
+    trainset, testset = getattr(datagen, 'load_{}'.format(args.dataset))()
 
     if args.pretrain_e is True:
        print ("==> pretraining encoder")

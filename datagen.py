@@ -3,7 +3,7 @@ import torchvision
 from torchvision import datasets, transforms
 
 
-def load_mnist(args):
+def load_mnist():
     torch.cuda.manual_seed(1)
     kwargs = {'num_workers': 1, 'pin_memory': True, 'drop_last': False}
     path = 'data_m/'
@@ -24,7 +24,7 @@ def load_mnist(args):
     return train_loader, test_loader
 
 
-def load_notmnist(args):
+def load_notmnist():
     torch.cuda.manual_seed(1)
     kwargs = {'num_workers': 1, 'pin_memory': True, 'drop_last': False}
     path = 'data_nm/'
@@ -65,7 +65,7 @@ def load_fashion_mnist():
     return train_loader, test_loader
 
 
-def load_cifar(args):
+def load_cifar():
     path = 'data_c/'
     kwargs = {'num_workers': 1, 'pin_memory': True, 'drop_last': True}
     transform_train = transforms.Compose([
@@ -87,10 +87,8 @@ def load_cifar(args):
     return trainloader, testloader
 
 
-def load_cifar_hidden(args, c_idx=[0,1,2,3,4]):
+def load_cifar_hidden(c_idx=[0,1,2,3,4]):
     path = './data_c'
-    if args.scratch:
-        path = '/scratch/eecs-share/ratzlafn/' + path
     kwargs = {'num_workers': 2, 'pin_memory': True, 'drop_last': True}
     transform_train = transforms.Compose([
         transforms.ToTensor(),
