@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .hypergan_base import HyperGAN_Base
+import itertools
 
 """ LeNet5 Pytorch definition """
 class LeNet(nn.Module):
@@ -28,20 +29,23 @@ class Mixer(nn.Module):
         super(Mixer, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.s, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, self.z*self.ngen, bias=self.bias)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(512)
+        self.linear1 = nn.Linear(self.s, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, self.z*5, bias=self.bias)
+        if args.use_bn:
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
+        else:
+            self.bn1 = lambda x: x
+            self.bn2 = lambda x: x
 
     def forward(self, x):
         x = x.view(-1, self.s) #flatten filter size
-        x = torch.zeros_like(x).normal_(0, 0.01) + x
         x = F.relu(self.bn1(self.linear1(x)))
         x = F.relu(self.bn2(self.linear2(x)))
         x = self.linear3(x)
-        x = x.view(-1, self.ngen, self.z)
-        w = torch.stack([x[:, i] for i in range(self.ngen)])
+        x = x.view(-1, 5, self.z)
+        w = torch.stack([x[:, i] for i in range(5)])
         return w
 
 
@@ -50,11 +54,15 @@ class GeneratorW1(nn.Module):
         super(GeneratorW1, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, 150 + 6, bias=self.bias)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(512)
+        self.linear1 = nn.Linear(self.z, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, 150 + 6, bias=self.bias)
+        if args.use_bn:
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
+        else:
+            self.bn1 = lambda x: x
+            self.bn2 = lambda x: x
 
     def forward(self, x):
         if not self.bias:
@@ -75,11 +83,15 @@ class GeneratorW2(nn.Module):
         super(GeneratorW2, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, 2400+16, bias=self.bias)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(512)
+        self.linear1 = nn.Linear(self.z, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, 2400+16, bias=self.bias)
+        if args.use_bn:
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
+        else:
+            self.bn1 = lambda x: x
+            self.bn2 = lambda x: x
 
     def forward(self, x):
         if not self.bias:
@@ -100,11 +112,15 @@ class GeneratorW3(nn.Module):
         super(GeneratorW3, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, 120*400+120, bias=self.bias)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(512)
+        self.linear1 = nn.Linear(self.z, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, 120*400+120, bias=self.bias)
+        if args.use_bn:
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
+        else:
+            self.bn1 = lambda x: x
+            self.bn2 = lambda x: x
 
     def forward(self, x):
         if not self.bias:
@@ -125,11 +141,15 @@ class GeneratorW4(nn.Module):
         super(GeneratorW4, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, 84*120+84, bias=self.bias)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(512)
+        self.linear1 = nn.Linear(self.z, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, 84*120+84, bias=self.bias)
+        if args.use_bn:
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
+        else:
+            self.bn1 = lambda x: x
+            self.bn2 = lambda x: x
 
     def forward(self, x):
         if not self.bias:
@@ -150,11 +170,15 @@ class GeneratorW5(nn.Module):
         super(GeneratorW5, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, 10*84+10, bias=self.bias)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(512)
+        self.linear1 = nn.Linear(self.z, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, 10*84+10, bias=self.bias)
+        if args.use_bn:
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
+        else:
+            self.bn1 = lambda x: x
+            self.bn2 = lambda x: x
 
     def forward(self, x):
         if not self.bias:
@@ -175,9 +199,9 @@ class DiscriminatorZ(nn.Module):
         super(DiscriminatorZ, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512)
-        self.linear2 = nn.Linear(512, 512)
-        self.linear3 = nn.Linear(512, 1)
+        self.linear1 = nn.Linear(self.z, args.n_hidden)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden)
+        self.linear3 = nn.Linear(args.n_hidden, 1)
 
     def forward(self, x):
         x = x.view(-1, self.z)
@@ -190,20 +214,21 @@ class DiscriminatorZ(nn.Module):
 
 class HyperGAN(HyperGAN_Base):
     
-    def __init__(self, args):
+    def __init__(self, args, device):
         super(HyperGAN, self).__init__(args)
-        self.mixer = Mixer(args).to(args.device)
-        self.generator = self.Generator(args)
-        self.discriminator = DiscriminatorZ(args).to(args.device)
-        self.model = LeNet().to(args.device)
+        self.device = device
+        self.mixer = Mixer(args).to(device)
+        self.generator = self.Generator(args, device)
+        self.discriminator = DiscriminatorZ(args).to(device)
+        self.model = LeNet().to(device)
 
     class Generator(object):
-        def __init__(self, args):
-            self.W1 = GeneratorW1(args).to(args.device)
-            self.W2 = GeneratorW2(args).to(args.device)
-            self.W3 = GeneratorW3(args).to(args.device)
-            self.W4 = GeneratorW4(args).to(args.device)
-            self.W5 = GeneratorW5(args).to(args.device)
+        def __init__(self, args, device):
+            self.W1 = GeneratorW1(args).to(device)
+            self.W2 = GeneratorW2(args).to(device)
+            self.W3 = GeneratorW3(args).to(device)
+            self.W4 = GeneratorW4(args).to(device)
+            self.W5 = GeneratorW5(args).to(device)
 
         def __call__(self, x):
             w1, b1 = self.W1(x[0])
@@ -217,8 +242,18 @@ class HyperGAN(HyperGAN_Base):
         def as_list(self):
             return [self.W1, self.W2, self.W3, self.W4, self.W5]
 
+    def attach_optimizers(self, lr_m, lr_g, lr_d=None):
+        self.optim_mixer = torch.optim.Adam(self.mixer.parameters(), lr=lr_m, weight_decay=1e-4)
+        if lr_d:
+            self.optim_disc = torch.optim.Adam(self.discriminator.parameters(), lr=lr_d, weight_decay=1e-4)
+        gen_params = [g.parameters() for g in self.generator.as_list()]
+        self.optim_generator = torch.optim.Adam(itertools.chain(*gen_params), lr=lr_g, weight_decay=1e-4)
+
+    def update_generator(self):
+        self.optim_generator.step()
+
     """ functional model for training """
-    def eval_f(self, args, Z, data):
+    def eval_f(self, Z, data):
         w1, b1, w2, b2, w3, b3, w4, b4, w5, b5 = Z
         x = F.conv2d(data, w1, stride=1, padding=2, bias=b1)
         x = F.relu(x)
@@ -253,3 +288,26 @@ class HyperGAN(HyperGAN_Base):
                 }
         path = 'saved_models/mnist/lenet-{}-{}.pt'.format(args.exp, metrics)
         torch.save(save_dict, path)
+
+    def print_hypergan(self):
+        print (self.mixer)
+        for generator in self.generator.as_list():
+            print (generator)
+
+    def zero_grad(self):
+        self.mixer.zero_grad()
+        self.discriminator.zero_grad()
+        for generator in self.generator.as_list():
+            generator.zero_grad()
+
+    def train_(self):
+        self.mixer.train()
+        self.discriminator.train()
+        for generator in self.generator.as_list():
+            generator.train()
+
+    def eval_(self):
+        self.mixer.eval()
+        self.discriminator.eval()
+        for generator in self.generator.as_list():
+            generator.eval()
