@@ -6,33 +6,12 @@ import torch.distributions.uniform as U
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.optim.optimizer import Optimizer
 
+import os
 import math
 import numpy as np
 from bisect import bisect_right,bisect_left
-
-
-def sample_hypernet_mnist(args ,hypernet, num):
-    netE, W1, W2, W3 = hypernet
-    x_dist = create_d(args.ze)
-    z = sample_d(x_dist, num)
-    codes = netE(z)
-    l1 = W1(codes[0])
-    l2 = W2(codes[1])
-    l3 = W3(codes[2])
-    return l1, l2, l3, codes
-
-
-def sample_hypernet_cifar(args, hypernet, num):
-    netE, W1, W2, W3, W4, W5 = hypernet
-    x_dist = create_d(args.ze)
-    z = sample_d(x_dist, num)
-    codes = netE(z)
-    l1 = W1(codes[0])
-    l2 = W2(codes[1])
-    l3 = W3(codes[2])
-    l4 = W4(codes[3])
-    l5 = W5(codes[4])
-    return l1, l2, l3, l4, l5, codes
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 def weights_to_clf(weights, model, names):
@@ -65,40 +44,6 @@ class CyclicCosAnnealingLR(_LRScheduler):
                 for base_lr in self.base_lrs]
 
 
-def batch_rbf_xy(x, y, h_min=1e-3):
-    """
-	xs(`tf.Tensor`): A tensor of shape (N x Kx x D) containing N sets of Kx
-	    particles of dimension D. This is the first kernel argument.
-	ys(`tf.Tensor`): A tensor of shape (N x Ky x D) containing N sets of Kx
-	    particles of dimension D. This is the second kernel argument.
-	h_min(`float`): Minimum bandwidth.
-    """
-    Kx, D = x.shape[-2:]
-    Ky, D2 = y.shape[-2:]
-    assert D == D2
-    leading_shape = x.shape[:-2]
-    diff = x.unsqueeze(-2) - y.unsqueeze(-3)
-    # ... x Kx x Ky x D
-    dist_sq = torch.sum(diff**2, -1)
-    input_shape = (*leading_shape, *[Kx * Ky])
-    values, _ = torch.topk(dist_sq.view(*input_shape), k=(Kx * Ky // 2 + 1))  # ... x floor(Ks*Kd/2)
-
-    medians_sq = values[..., -1]  # ... (shape) (last element is the median)
-    h = medians_sq / np.log(Kx)  # ... (shape)
-    h = torch.max(h, torch.tensor([h_min]).cuda())
-    h = h.detach()  # Just in case.
-    h_expanded_twice = h.unsqueeze(-1).unsqueeze(-1)
-    # ... x 1 x 1
-    kappa = torch.exp(-dist_sq / h_expanded_twice)  # ... x Kx x Ky
-    # Construct the gradient
-    h_expanded_thrice = h_expanded_twice.unsqueeze(-1)
-    # ... x 1 x 1 x 1
-    kappa_expanded = kappa.unsqueeze(-1)  # ... x Kx x Ky x 1
-
-    kappa_grad = -2 * diff / h_expanded_thrice * kappa_expanded
-    # ... x Kx x Ky x D
-    return kappa, kappa_grad
-
 def batch_rbf(x, y, h_min=1e-3):
     """
         x (tensor): A tensor of shape (Nx, B, D) containing Nx particles
@@ -122,4 +67,41 @@ def batch_rbf(x, y, h_min=1e-3):
 
     return kappa, kappa_grad
 
+
+def plot_density_mnist(x_inliers, x_outliers, ens_size, prefix, epoch=0):
+    in_entropy, in_variance = x_inliers
+    out_entropy, out_variance = x_outliers
+    f, axes = plt.subplots(2, 2, figsize=(22, 16))
+    plt.suptitle('{} models MNIST'.format(ens_size))
+    plt.subplots_adjust(top=0.85)
+
+    sns.distplot(in_entropy, hist=False, label='MNIST', color='m', ax=axes[0,0])
+    sns.distplot(out_entropy, hist=False, label='notMNIST', ax=axes[0,0])
+    axes[0, 0].set_xlabel('Entropy')
+    axes[0, 0].grid(True)
+
+    sns.distplot(in_variance, hist=False, label='MNIST', color='m', ax=axes[0,1])
+    sns.distplot(out_variance, hist=False, label='notMNIST', ax=axes[0,1])
+    axes[0, 1].set_xlabel('Variance')
+    axes[0, 1].grid(True)
+
+    sns.distplot(out_entropy, hist=True, color='b', ax=axes[1, 0])
+    axes[1, 0].set_xlabel('Entropy')
+    axes[1, 0].set_title('notMNIST entropy')
+    axes[1, 0].grid(True)
+
+    sns.distplot(out_variance, hist=True, color='b', ax=axes[1, 1])
+    axes[1, 1].set_xlabel('Variance')
+    axes[1, 1].set_title('notMNIST variance')
+    axes[1, 1].grid(True)
+
+    axes[0, 0].legend(loc='best')
+    axes[0, 1].legend(loc='best')
+    plt.tight_layout()
+
+    path = prefix+'/epoch{}_{}models.png'.format(epoch, ens_size)
+    os.makedirs(prefix, exist_ok=True)
+    
+    f.savefig(path)
+    plt.close('all')
 

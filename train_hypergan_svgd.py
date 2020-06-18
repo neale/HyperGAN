@@ -14,8 +14,8 @@ from torch.nn import functional as F
 import torch.distributions.multivariate_normal as N
 import pprint
 
-# import models.models_cifar as models
 #from models.mednet2 import HyperGAN
+#import models.mednet2 as models
 from models.lenet import HyperGAN
 import models.lenet as models
 
@@ -23,7 +23,7 @@ import ops
 import utils
 import netdef
 import datagen
-
+import evaluate_uncertainty as uncertainty
 
 def load_args():
 
@@ -42,7 +42,8 @@ def load_args():
     parser.add_argument('--scratch', action='store_true')
     parser.add_argument('--use_bn', action='store_true')
     parser.add_argument('--bias', action='store_true')
-    parser.add_argument('--ensemble', action='store_true')
+    parser.add_argument('--test_ensemble', action='store_true')
+    parser.add_argument('--test_uncertainty', action='store_true')
     parser.add_argument('--vote', default='hard', type=str)
 
     args = parser.parse_args()
@@ -59,9 +60,11 @@ class HyperGANTrainer(object):
         self.target = args.target
         self.use_bn = args.use_bn
         self.bias = args.bias
+        self.n_hidden = args.n_hidden
         self.pretrain_e = args.pretrain_e
         self.dataset = args.dataset
-        self.test_ensemble = args.ensemble
+        self.test_ensemble = args.test_ensemble
+        self.test_uncertainty = args.test_uncertainty
         self.vote = args.vote
 
         self.device = torch.device('cuda')
@@ -188,16 +191,35 @@ class HyperGANTrainer(object):
                     print ('best test acc: {}'.format(self.best_test_acc))
                     print ('**************************************')
 
-            with torch.no_grad():
-                if self.test_ensemble:
+            if self.test_ensemble:
+                with torch.no_grad():
                     for ens_size in [1, 5, 10, 100]:
                         test_loss, test_acc, correct = self.test(ens_size, voting=self.vote)
                         print ('[Epoch {}] Ensemble [{}]. Test Loss: {}, Test Accuracy: {},  ({}/{})'.format(
-                                epoch, ens_size, test_loss, test_acc, correct, len(self.data_test.dataset)))
-                else:
+                                epoch+1, ens_size, test_loss, test_acc, correct, len(self.data_test.dataset)))
+            else:
+                with torch.no_grad():
                     test_loss, test_acc, correct = self.test(self.batch_size, voting=self.vote)
                     print ('[Epoch {}] Test Loss: {}, Test Accuracy: {},  ({}/{})'.format(
-                            epoch, test_loss, test_acc, correct, len(self.data_test.dataset)))
+                            epoch+1, test_loss, test_acc, correct, len(self.data_test.dataset)))
+
+            if self.test_uncertainty:
+                with torch.no_grad():
+                    for ens_size in [5, 10, 100]:
+                        if self.dataset == 'mnist':
+                            test_fn = uncertainty.eval_mnist_hypergan
+                            plot_density = utils.plot_density_mnist
+                        elif self.dataset == 'cifar':
+                            test_fn = uncertainty.eval_cifar5_hypergan
+                            plot_density = utils.plot_density_cifar
+                        # inliers
+                        entropy_i, variance_i = test_fn(self.hypergan, ens_size, self.s)
+                        # outliers
+                        entropy_o, variance_o = test_fn(self.hypergan, ens_size, self.s, outlier=True)
+                        x_inliers = (entropy_i, variance_i)
+                        x_outliers = (entropy_o, variance_o)
+                        prefix = 'figures/hypergan-{}/{}hidden/mnist'.format(self.vote, self.n_hidden)
+                        plot_density(x_inliers, x_outliers, ens_size, prefix, epoch+1)
 
             if test_loss < self.best_test_loss or test_acc > self.best_test_acc:
                 print ('==> new best stats, saving')
@@ -250,14 +272,6 @@ class HyperGANTrainer(object):
 if __name__ == '__main__':
 
     args = load_args()
-    modeldef = netdef.nets()[args.target]
-    pprint.pprint (modeldef)
-    # log some of the netstat quantities so we don't subscript everywhere
-    args.stat = modeldef
-    args.shapes = modeldef['shapes']
-    args.lcd = modeldef['base_shape']
-    # why is a running product so hard in python
-    args.gcd = int(np.prod([*args.shapes[0]]))
     trainer = HyperGANTrainer(args)
     trainer.train()
 

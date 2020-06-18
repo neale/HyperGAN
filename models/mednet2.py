@@ -33,12 +33,12 @@ class Mixer(nn.Module):
         super(Mixer, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.s, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, self.z*5, bias=self.bias)
+        self.linear1 = nn.Linear(self.s, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, self.z*5, bias=self.bias)
         if args.use_bn:
-            self.bn1 = nn.BatchNorm1d(512)
-            self.bn2 = nn.BatchNorm1d(512)
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
         else:
             self.bn1 = lambda x: x
             self.bn2 = lambda x: x
@@ -59,12 +59,12 @@ class GeneratorW1(nn.Module):
         super(GeneratorW1, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, 32*3*3*3 + 32, bias=self.bias)
+        self.linear1 = nn.Linear(self.z, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, 32*3*3*3 + 32, bias=self.bias)
         if args.use_bn:
-            self.bn1 = nn.BatchNorm1d(512)
-            self.bn2 = nn.BatchNorm1d(512)
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
         else:
             self.bn1 = lambda x: x
             self.bn2 = lambda x: x
@@ -88,12 +88,12 @@ class GeneratorW2(nn.Module):
         super(GeneratorW2, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, 64*32*3*3+64, bias=self.bias)
+        self.linear1 = nn.Linear(self.z, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, 64*32*3*3+64, bias=self.bias)
         if args.use_bn:
-            self.bn1 = nn.BatchNorm1d(512)
-            self.bn2 = nn.BatchNorm1d(512)
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
         else:
             self.bn1 = lambda x: x
             self.bn2 = lambda x: x
@@ -117,12 +117,12 @@ class GeneratorW3(nn.Module):
         super(GeneratorW3, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, 64*64*3*3+64, bias=self.bias)
+        self.linear1 = nn.Linear(self.z, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, 64*64*3*3+64, bias=self.bias)
         if args.use_bn:
-            self.bn1 = nn.BatchNorm1d(512)
-            self.bn2 = nn.BatchNorm1d(512)
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
         else:
             self.bn1 = lambda x: x
             self.bn2 = lambda x: x
@@ -146,12 +146,12 @@ class GeneratorW4(nn.Module):
         super(GeneratorW4, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, 128*256+128, bias=self.bias)
+        self.linear1 = nn.Linear(self.z, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, 128*256+128, bias=self.bias)
         if args.use_bn:
-            self.bn1 = nn.BatchNorm1d(512)
-            self.bn2 = nn.BatchNorm1d(512)
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
         else:
             self.bn1 = lambda x: x
             self.bn2 = lambda x: x
@@ -175,12 +175,12 @@ class GeneratorW5(nn.Module):
         super(GeneratorW5, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512, bias=self.bias)
-        self.linear2 = nn.Linear(512, 512, bias=self.bias)
-        self.linear3 = nn.Linear(512, 10*128+10, bias=self.bias)
+        self.linear1 = nn.Linear(self.z, args.n_hidden, bias=self.bias)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden, bias=self.bias)
+        self.linear3 = nn.Linear(args.n_hidden, 10*128+10, bias=self.bias)
         if args.use_bn:
-            self.bn1 = nn.BatchNorm1d(512)
-            self.bn2 = nn.BatchNorm1d(512)
+            self.bn1 = nn.BatchNorm1d(args.n_hidden)
+            self.bn2 = nn.BatchNorm1d(args.n_hidden)
         else:
             self.bn1 = lambda x: x
             self.bn2 = lambda x: x
@@ -204,9 +204,9 @@ class DiscriminatorZ(nn.Module):
         super(DiscriminatorZ, self).__init__()
         for k, v in vars(args).items():
             setattr(self, k, v)
-        self.linear1 = nn.Linear(self.z, 512)
-        self.linear2 = nn.Linear(512, 512)
-        self.linear3 = nn.Linear(512, 1)
+        self.linear1 = nn.Linear(self.z, args.n_hidden)
+        self.linear2 = nn.Linear(args.n_hidden, args.n_hidden)
+        self.linear3 = nn.Linear(args.n_hidden, 1)
 
     def forward(self, x):
         x = x.view(-1, self.z)
@@ -226,7 +226,6 @@ class HyperGAN(HyperGAN_Base):
         self.generator = self.Generator(args, device)
         self.discriminator = DiscriminatorZ(args).to(device)
         self.model = MedNet().to(device)
-        self.print_hypergan()
 
     class Generator(object):
         def __init__(self, args, device):
@@ -251,21 +250,11 @@ class HyperGAN(HyperGAN_Base):
     def attach_optimizers(self, lr_m, lr_g, lr_d):
         self.optim_mixer = torch.optim.Adam(self.mixer.parameters(), lr=lr_m, weight_decay=1e-4)
         self.optim_disc = torch.optim.Adam(self.discriminator.parameters(), lr=lr_d, weight_decay=1e-4)
-        
-        #gen_params = [g.parameters() for g in self.generator.as_list()]
-        #self.optim_generator = torch.optim.Adam(itertools.chain(*gen_params), lr=lr_g, weight_decay=1e-4)
-        self.optim_w1 = torch.optim.Adam(self.generator.W1.parameters(), lr=lr_g, weight_decay=1e-4)
-        self.optim_w2 = torch.optim.Adam(self.generator.W2.parameters(), lr=lr_g, weight_decay=1e-4)
-        self.optim_w3 = torch.optim.Adam(self.generator.W3.parameters(), lr=lr_g, weight_decay=1e-4)
-        self.optim_w4 = torch.optim.Adam(self.generator.W4.parameters(), lr=lr_g, weight_decay=1e-4)
-        self.optim_w5 = torch.optim.Adam(self.generator.W5.parameters(), lr=lr_g, weight_decay=1e-4)
+        gen_params = [g.parameters() for g in self.generator.as_list()]
+        self.optim_generator = torch.optim.Adam(itertools.chain(*gen_params), lr=lr_g, weight_decay=1e-4)
 
     def update_generator(self):
-        self.optim_w1.step()
-        self.optim_w2.step()
-        self.optim_w3.step()
-        self.optim_w4.step()
-        self.optim_w5.step()
+        self.optim_generator.step()
 
     # functional model for training
     def eval_f(self, Z, data):
@@ -313,4 +302,16 @@ class HyperGAN(HyperGAN_Base):
         self.discriminator.zero_grad()
         for generator in self.generator.as_list():
             generator.zero_grad()
+
+    def train_(self):
+        self.mixer.train()
+        self.discriminator.train()
+        for generator in self.generator.as_list():
+            generator.train()
+
+    def eval_(self):
+        self.mixer.eval()
+        self.discriminator.eval()
+        for generator in self.generator.as_list():
+            generator.eval()
 

@@ -21,7 +21,7 @@ def nets():
             'shapes': [(6, 3, 5, 5), (16, 6, 5, 5), (120, 400), (84, 120), (10, 84)],
             'base_shape': 5
             }
-    networks['mednet'] = { 
+    networks['mednet2'] = { 
             'name': 'MedNet',
             'n_layers': 5, 
             'layer_names': ['conv1', 'conv2', 'conv3', 'fc1', 'fc2'],

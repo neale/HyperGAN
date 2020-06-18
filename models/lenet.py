@@ -23,6 +23,25 @@ class LeNet(nn.Module):
         x = self.linear3(x)
         return x
 
+class LeNet_Dropout(nn.Module):
+    def __init__(self):
+        super(LeNet, self).__init__()
+        self.conv1 = nn.Conv2d(1, 6, (5,5), padding=2)
+        self.conv2 = nn.Conv2d(6, 16, (5,5))
+        self.linear1 = nn.Linear(16*5*5, 120)
+        self.linear2 = nn.Linear(120, 84)
+        self.linear3 = nn.Linear(84, 10)
+
+    def forward(self, x):
+        x = F.max_pool2d(F.relu(F.dropout2d(self.conv1(x)), (2,2), 0.2, training=True))
+        x = F.max_pool2d(F.relu(F.dropout2d(self.conv2(x)), (2,2), 0.2, training=True))
+        x = x.view(-1, 16*5*5)
+        x = F.relu(F.dropout(self.linear1(x), p=0.2, training=True))
+        x = F.relu(F.dropout(self.linear2(x), p=0.2, training=True))
+        x = self.linear3(x)
+        return x
+
+
 
 class Mixer(nn.Module):
     def __init__(self, args):

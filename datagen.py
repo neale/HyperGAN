@@ -2,6 +2,11 @@ import torch
 import torchvision
 from torchvision import datasets, transforms
 
+import os
+import tarfile
+import imageio
+import tqdm
+import numpy as np
 
 def load_mnist():
     torch.cuda.manual_seed(1)
@@ -13,7 +18,7 @@ def load_mnist():
                     transforms.ToTensor(),
                     transforms.Normalize((0.1307,), (0.3081,))
                     ])),
-                batch_size=100, shuffle=False, **kwargs)
+                batch_size=100, shuffle=True, **kwargs)
                 #batch_size=32, **kwargs)
     test_loader = torch.utils.data.DataLoader(
             datasets.MNIST(path, train=False, transform=transforms.Compose([
@@ -29,12 +34,12 @@ def load_notmnist():
     kwargs = {'num_workers': 1, 'pin_memory': True, 'drop_last': False}
     path = 'data_nm/'
     train_loader = torch.utils.data.DataLoader(
-            datasets.MNIST(path, train=True,
+            datasets.MNIST(path, train=True, download=True,
                 transform=transforms.Compose([
                     transforms.ToTensor(),
                     transforms.Normalize((0.1307,), (0.3081,))
                     ])),
-                batch_size=32, shuffle=True, **kwargs)
+                batch_size=100, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
             datasets.MNIST(path, train=False, transform=transforms.Compose([
                 transforms.ToTensor(),
@@ -78,7 +83,7 @@ def load_cifar():
         ])  
     trainset = torchvision.datasets.CIFAR10(root=path, train=True,
             download=True, transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=32,
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=100,
             shuffle=True, **kwargs)
     testset = torchvision.datasets.CIFAR10(root=path, train=False,
             download=True, transform=transform_test)
@@ -117,3 +122,4 @@ def load_cifar_hidden(c_idx=[0,1,2,3,4]):
     testloader = torch.utils.data.DataLoader(test_hidden, batch_size=100,
             shuffle=False, **kwargs)
     return trainloader, testloader
+
