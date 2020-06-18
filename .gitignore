@@ -9,9 +9,11 @@ data/
 data_f/
 data_c/
 data_m/
+data_nm/
 bin/
 lib/
 include/
 exp_models/
+histograms/
 .*.sw* 
 *.sw* 
