@@ -17,3 +17,5 @@ exp_models/
 histograms/
 .*.sw* 
 *.sw* 
+*.tar
+*.gz
