@@ -15,6 +15,7 @@ lib/
 include/
 exp_models/
 histograms/
+figures/
 .*.sw* 
 *.sw* 
 *.tar
