@@ -44,28 +44,25 @@ class CyclicCosAnnealingLR(_LRScheduler):
                 for base_lr in self.base_lrs]
 
 
-def batch_rbf(x, y, h_min=1e-3):
-    """
-        x (tensor): A tensor of shape (Nx, B, D) containing Nx particles
-        y (tensor): A tensor of shape (Ny, B, D) containing Ny particles
-        h_min(`float`): Minimum bandwidth.
-    """
-    Nx, Bx, Dx = x.shape 
-    Ny, By, Dy = y.shape
-    assert Bx == By
-    assert Dx == Dy
-    diff = x.unsqueeze(1) - y.unsqueeze(0) # Nx x Ny x B x D
-    dist_sq = torch.sum(diff**2, -1).mean(dim=-1) # Nx x Ny
-    values, _ = torch.topk(dist_sq.view(-1), k=dist_sq.nelement()//2+1)
-    median_sq = values[-1]
-    h = median_sq / np.log(Nx)
-    h = torch.max(h, torch.tensor([h_min]).cuda())
-    # Nx x Ny
-    kappa = torch.exp(-dist_sq / h)
-    # Nx x Ny x B x D
-    kappa_grad = torch.einsum('ij,ijkl->ijkl', kappa, -2 * diff / h)
+def hyperlayer_init(layer, d_in, d_out, is_final=False):
+    if is_final:
+        relu = 1
+    else:
+        relu = 2
+    fan_out = d_in * d_out * 1.0  # 1.0 variance for standard gaussian input
+    w_init = np.sqrt(3 * ((2**relu)/fan_out))
+    torch.nn.init.uniform_(layer.weight.data, -w_init, w_init)
+    return layer
 
-    return kappa, kappa_grad
+
+def print_statistics_hypernetwork(dataset, epoch, loss, best_stats):
+    best_acc, best_loss = best_stats
+    print ('--------------------------------------')
+    print ('{} Train, epoch: {}'.format(dataset, epoch))
+    print ('HyperNetwork Loss: {}'.format(loss))
+    print ('best test loss: {}'.format(best_loss))
+    print ('best test acc: {}'.format(best_acc))
+    print ('--------------------------------------')
 
 
 def plot_density_mnist(x_inliers, x_outliers, ens_size, prefix, epoch=0):

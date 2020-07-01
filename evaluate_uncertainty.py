@@ -1,16 +1,20 @@
+# Neale Ratzlaff
+# 
+""" evaluate_uncertinaty.py
+"""
+
+import os
 import torch
 import numpy as np
 import torch.nn.functional as F
+from scipy.stats import entropy as entropy_fn
 
 import utils
 import datagen
 
-import os
-from scipy.stats import entropy as entropy_fn
 
-
-def eval_mnist_hypergan(hypergan, ens_size, s_dim, outlier=False):
-    hypergan.eval_()
+def eval_mnist_hypernetwork(hypernetwork, ens_size, s_dim, device, outlier=False):
+    hypernetwork.eval()
     if outlier is True:
         trainloader, testloader = datagen.load_notmnist()
     else:
@@ -18,16 +22,15 @@ def eval_mnist_hypergan(hypergan, ens_size, s_dim, outlier=False):
 
     model_outputs = torch.zeros(ens_size, len(testloader.dataset), 10)
     for i, (data, target) in enumerate(testloader):
-        data = data.cuda()
-        target = target.cuda()
-        z = torch.randn(ens_size, s_dim).to(hypergan.device)
-        codes = hypergan.mixer(z)
-        params = hypergan.generator(codes)
-        outputs = []
-        for (layers) in zip(*params):
-            output = hypergan.eval_f(layers, data)
-            outputs.append(output)
-        outputs = torch.stack(outputs)
+        data = data.to(device)
+        target = target.to(device)
+        with torch.no_grad():
+            z = hypernetwork.sample_generator_input()
+            theta = hypernetwork.sample_parameters(z)
+            hypernetwork.set_parameters_to_model(theta)
+            outputs = hypernetwork.forward_model(data)
+        outputs = outputs.transpose(0, 1) # [B, N, D] -> [N, B, D]
+        outputs = outputs[:ens_size]
         model_outputs[:, i*len(data):(i+1)*len(data), :] = outputs
     
     # Soft Voting (entropy in confidence)
@@ -39,12 +42,12 @@ def eval_mnist_hypergan(hypergan, ens_size, s_dim, outlier=False):
     probs_hard = F.softmax(model_outputs, dim=-1) #[ens, data, 10]
     preds_hard = probs_hard.var(0).cpu()  # [data, 10]
     variance = preds_hard.sum(1).numpy()  # [data]
-    hypergan.train_()
+    hypernetwork.train()
 
     return entropy, variance
 
 
-def eval_mnist_ensemble(ensemble, outlier=False):
+def eval_mnist_ensemble(ensemble, device, outlier=False):
     for model in ensemble:
         model.eval()
 
@@ -55,12 +58,12 @@ def eval_mnist_ensemble(ensemble, outlier=False):
 
     model_outputs = torch.zeros(len(ensemble), len(testloader.dataset), 10)
     for i, (data, target) in enumerate(testloader):
-        data = data.cuda()
-        target = target.cuda()
-        outputs = []
-        for model in ensemble:
-            outputs.append(model(data))
-        outputs = torch.stack(outputs)
+        data = data.to(device)
+        target = target.to(device)
+        with torch.no_grad():
+            outputs = self.predict(data)
+        outputs = outputs.transpose(0, 1) # [B, N, D] -> [N, B, D]
+        outputs = outputs[:ens_size]
         model_outputs[:, i*len(data):(i+1)*len(data), :] = outputs
 
     # Soft Voting (entropy in confidence)
@@ -78,8 +81,8 @@ def eval_mnist_ensemble(ensemble, outlier=False):
     return entropy, variance
 
 
-def eval_cifar5_hypergan(hypergan, ens_size, s_dim, outlier=False):
-    hypergan.eval_()
+def eval_cifar5_hypernetwork(hypernetwork, ens_size, s_dim, device, outlier=False):
+    hypernetwork.eval()
     if outlier is True:
         trainloader, testloader = datagen.load_cifar10()
     else:
@@ -88,16 +91,14 @@ def eval_cifar5_hypergan(hypergan, ens_size, s_dim, outlier=False):
     model_outputs = torch.zeros(ens_size, len(testloader.dataset), 10)
     model_outputs = torch.zeros(ens_size, len(testloader.dataset), 5)
     for i, (data, target) in enumerate(testloader):
-        data = data.cuda()
-        target = target.cuda()
-        z = torch.randn(ens_size, s_dim).to(hypergan.device)
-        codes = hypergan.mixer(z)
-        params = hypergan.generator(codes)
-        outputs = []
-        for (layers) in zip(*params):
-            output = hypergan.eval_f(layers, data)
-            outputs.append(output)
-        outputs = torch.stack(outputs)
+        data = data.to(device)
+        target = target.to(device)
+        with torch.no_grad():
+            z = hypernetwork.sample_generator_input()
+            theta = hypernetwork.sample_parameters(z)
+            hypernetwork.set_parameters_to_model(theta)
+            outputs = hypernetwork.forward_model(data)
+        outputs = outputs.transpose(0, 1) # [B, N, D] -> [N, B, D]
         model_outputs[:, i*len(data):(i+1)*len(data), :] = outputs
 
     # Soft Voting (entropy in confidence)
@@ -109,12 +110,12 @@ def eval_cifar5_hypergan(hypergan, ens_size, s_dim, outlier=False):
     probs_hard = F.softmax(outputs, dim=-1) #[ens, data, 10]
     preds_hard = probs_hard.argmax(-1).cpu()  # [ens, data, 1]
     variance = preds_hard.var(0)  # [data, 1]
-    hypergan.train_()
+    hypernetwork.train()
 
     return entropy, variance
 
 
-def eval_cifar5_ensemble(ensemble, outlier=False):
+def eval_cifar5_ensemble(ensemble, device, outlier=False):
     for model in ensemble:
         model.eval()
 
@@ -125,12 +126,11 @@ def eval_cifar5_ensemble(ensemble, outlier=False):
 
     model_outputs = torch.zeros(len(ensemble), len(testloader.dataset), 10)
     for i, (data, target) in enumerate(testloader):
-        data = data.cuda()
-        target = target.cuda()
-        outputs = []
-        for model in ensemble:
-            outputs.append(model(data))
-        outputs = torch.stack(outputs)
+        data = data.to(device)
+        target = target.to(device)
+        with torch.no_grad():
+            outputs = self.predict(data)
+        outputs = outputs.transpose(0, 1) # [B, N, D] -> [N, B, D]
         model_outputs[:, i*len(data):(i+1)*len(data), :] = outputs
 
     # Soft Voting (entropy in confidence)
@@ -146,5 +146,4 @@ def eval_cifar5_ensemble(ensemble, outlier=False):
         model.train()
 
     return entropy, variance
-
 

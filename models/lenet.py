@@ -84,7 +84,7 @@ class GeneratorW1(nn.Module):
             self.bn2 = lambda x: x
 
     def forward(self, x):
-        if not self.bias:
+        if not self.bias and self.use_bn:
             self.bn1.bias.data.zero_()
             self.bn2.bias.data.zero_()
         x = torch.zeros_like(x).normal_(0, 0.01) + x
@@ -113,7 +113,7 @@ class GeneratorW2(nn.Module):
             self.bn2 = lambda x: x
 
     def forward(self, x):
-        if not self.bias:
+        if not self.bias and self.use_bn:
             self.bn1.bias.data.zero_()
             self.bn2.bias.data.zero_()
         x = torch.zeros_like(x).normal_(0, 0.01) + x
@@ -142,7 +142,7 @@ class GeneratorW3(nn.Module):
             self.bn2 = lambda x: x
 
     def forward(self, x):
-        if not self.bias:
+        if not self.bias and self.use_bn:
             self.bn1.bias.data.zero_()
             self.bn2.bias.data.zero_()
         x = torch.zeros_like(x).normal_(0, 0.01) + x
@@ -171,7 +171,7 @@ class GeneratorW4(nn.Module):
             self.bn2 = lambda x: x
 
     def forward(self, x):
-        if not self.bias:
+        if not self.bias and self.use_bn:
             self.bn1.bias.data.zero_()
             self.bn2.bias.data.zero_()
         x = torch.zeros_like(x).normal_(0, 0.01) + x
@@ -200,7 +200,7 @@ class GeneratorW5(nn.Module):
             self.bn2 = lambda x: x
 
     def forward(self, x):
-        if not self.bias:
+        if not self.bias and self.use_bn:
             self.bn1.bias.data.zero_()
             self.bn2.bias.data.zero_()
         x = torch.zeros_like(x).normal_(0, 0.01) + x
@@ -230,16 +230,27 @@ class DiscriminatorZ(nn.Module):
         x = torch.sigmoid(x)
         return x
 
-
+        
 class HyperGAN(HyperGAN_Base):
     
-    def __init__(self, args, device):
+    def __init__(self, args, device, init=None):
         super(HyperGAN, self).__init__(args)
         self.device = device
         self.mixer = Mixer(args).to(device)
         self.generator = self.Generator(args, device)
         self.discriminator = DiscriminatorZ(args).to(device)
         self.model = LeNet().to(device)
+        
+        self.init_fn = init
+        if self.init_fn is not None:
+            self.mixer.apply(self.weights_init)
+            self.discriminator.apply(self.weights_init)
+            for m in self.generator.as_list():
+                m.apply(self.weights_init)
+
+    def weights_init(self, m):
+        if type(m) in [nn.Linear]:
+            self.init_fn(m, m.in_features, m.out_features)
 
     class Generator(object):
         def __init__(self, args, device):
@@ -248,7 +259,8 @@ class HyperGAN(HyperGAN_Base):
             self.W3 = GeneratorW3(args).to(device)
             self.W4 = GeneratorW4(args).to(device)
             self.W5 = GeneratorW5(args).to(device)
-
+        
+            
         def __call__(self, x):
             w1, b1 = self.W1(x[0])
             w2, b2 = self.W2(x[1])
@@ -308,7 +320,7 @@ class HyperGAN(HyperGAN_Base):
         path = 'saved_models/mnist/lenet-{}-{}.pt'.format(args.exp, metrics)
         torch.save(save_dict, path)
 
-    def print_hypergan(self):
+    def print_hypernetwork(self):
         print (self.mixer)
         for generator in self.generator.as_list():
             print (generator)

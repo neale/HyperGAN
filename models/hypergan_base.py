@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import torch.nn as nn
 
+
 class HyperGAN_Base(ABC):
 
     def __init__(self, args):
@@ -8,7 +9,7 @@ class HyperGAN_Base(ABC):
         self.sample_size = args.s
         self.latent_width = args.z
         self.ngen = 3 if args.target == 'small' else 5
-        args.ensemble_size = args.batch_size
+        args.particles = args.particles
 
     @abstractmethod
     class Generator(object):
