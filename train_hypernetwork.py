@@ -1,6 +1,3 @@
-import os
-import sys
-import time
 import argparse
 import numpy as np
 
@@ -12,9 +9,7 @@ from torch import autograd
 import itertools
 import pprint
 
-import ops
 import utils
-import netdef
 import datagen
 import evaluate_uncertainty as uncertainty
 from hypernetwork import hypernetwork
@@ -23,7 +18,7 @@ from stein_estimators import GradientEstimatorStein
 
 def load_args():
     parser = argparse.ArgumentParser(description='HyperNetwork Arguments')
-    parser.add_argument('-s', '--s_dim', default=512, type=int,
+    parser.add_argument('-s', '--s_dim', default=64, type=int,
             help='mixer dimension')
     parser.add_argument('-z', '--z_dim', default=32, type=int,
             help='latent space width')
@@ -39,7 +34,7 @@ def load_args():
             help='gradient estimator <stein, svgd>')
     parser.add_argument('-d', '--dataset', default='mnist', type=str,
             help='input dataset <mnist, cifar>')
-    parser.add_argument('--use_bias', action='store_true', default=True,
+    parser.add_argument('--use_bias', action='store_true',
             help='controls if the hypernet generates a bias for the target net')
     parser.add_argument('--use_mixer', action='store_true',
             help='turns on the mixer network')
@@ -64,7 +59,6 @@ class HyperNetworkTrainer(object):
         self.target_arch = args.target_arch
         self.use_bn = args.use_bn
         self.use_bias = args.use_bias
-        self.pretrain_mixer = args.pretrain_mixer
         self.dataset = args.dataset
         self.grad_type = args.grad
         
@@ -116,11 +110,12 @@ class HyperNetworkTrainer(object):
         if self.dataset == 'mnist':
             self.data_train, self.data_test = datagen.load_mnist()
             self.uncertainty_fn = uncertainty.eval_mnist_hypernetwork
-            self.plot_fn = utils.plot_density_mnist
+            self.plot_fn = utils.plot_density
+
         elif self.dataset == 'cifar':
-            self.data_train, self.data_test = datagen.load_cifar()
-            self.uncertainty_fn = uncertainty.eval_cifar5_hypernetwork
-            self.plot_fn = utils.plot_density_cifar
+            self.data_train, self.data_test = datagen.load_cifarx(c_idx=[0,1,2,3,4])
+            self.uncertainty_fn = uncertainty.eval_cifarx_hypernetwork
+            self.plot_fn = utils.plot_density
 
         self.best_test_acc = 0.
         self.best_test_loss = np.inf
@@ -169,23 +164,15 @@ class HyperNetworkTrainer(object):
                 
             if self.test_uncertainty:
                 for ens_size in [5, 10, self.particles]:
-                    entropy_in, variance_in = self.uncertainty_fn(
+                    uncertainty_in, uncertainty_out, auc = self.uncertainty_fn(
                             self.hypernetwork,
                             ens_size,
                             self.s,
-                            self.device,
-                            outlier=False)
-                    entropy_out, variance_out = self.uncertainty_fn(
-                            self.hypernetwork,
-                            ens_size,
-                            self.s,
-                            self.device,
-                            outlier=True)
-                    x_inliers = (entropy_in, variance_in)
-                    x_outliers = (entropy_out, variance_out)
+                            self.device)
+                    print ('AUC: {}'.format(auc))
                     self.plot_fn(
-                            x_inliers,
-                            x_outliers,
+                            uncertainty_in,
+                            uncertainty_out,
                             ens_size,
                             self.prefix,
                             epoch+1)

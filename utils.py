@@ -65,7 +65,7 @@ def print_statistics_hypernetwork(dataset, epoch, loss, best_stats):
     print ('--------------------------------------')
 
 
-def plot_density_mnist(x_inliers, x_outliers, ens_size, prefix, epoch=0):
+def plot_density(x_inliers, x_outliers, ens_size, prefix, epoch=0):
     in_entropy, in_variance = x_inliers
     out_entropy, out_variance = x_outliers
     f, axes = plt.subplots(2, 2, figsize=(22, 16))

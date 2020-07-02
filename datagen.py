@@ -92,7 +92,7 @@ def load_cifar():
     return trainloader, testloader
 
 
-def load_cifar_hidden(c_idx=[0,1,2,3,4]):
+def load_cifarx(c_idx=[0,1,2,3,4]):
     path = './data_c'
     kwargs = {'num_workers': 2, 'pin_memory': True, 'drop_last': True}
     transform_train = transforms.Compose([
